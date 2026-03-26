@@ -1,2 +1,2 @@
 # 2526_COMPU_SantiagoVallecillosAranda
-Hello world
+Repositorio para la asignatura Física Computacional.
