@@ -70,3 +70,6 @@ Thumbs.db
 *.swo
 *~
 .vscode/tasks.json
+
+# Dejo fuera los apuntes
+SistemaSolar/Teoria/planetas-SLIDES.pdf
