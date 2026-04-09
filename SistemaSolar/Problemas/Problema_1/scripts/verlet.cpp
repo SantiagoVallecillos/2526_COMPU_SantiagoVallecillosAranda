@@ -21,7 +21,16 @@ Finalmente, se almacenarán en un nuevo fichero para, posteriormente, poder anim
 using namespace std;
 
 // Dejo un hueco para definir funciones
-void Verlet(double t, double h);
+//Función con el agoritmo de Verlet
+void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x[][4][2], double v[][4][2], double a[][4][2], double masa[]);
+//Función para reescalar los datos
+
+//Función para deshacer el reescalado de los datos obtenidos
+
+//Función para leer el fichero de datos de entrada
+
+//Función para escribir en el fichero de salida
+
 
 int main() {
 
@@ -58,7 +67,7 @@ int main() {
 }
 
 //Aquí escribo el código de las funciones.
-void Verlet(double t, double h, int N, double x0[][2], double v0[][2], double x[][4][2], double v[][4][2], double a[][4][2], double masa[]) {
+void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x[][4][2], double v[][4][2], double a[][4][2], double masa[]) {
 
     //Esta función ignora los reescalados, por lo que se asume que los datos de entrada ya han sido reescalados
     //y se deshará el reescalamiento a posteriori.
@@ -85,16 +94,32 @@ void Verlet(double t, double h, int N, double x0[][2], double v0[][2], double x[
                 //En primer lugar, calculo la aceleración de cada planeta en el paso t.
                 a[n][i][j]=0.0; //Inicializo la aceleración a cero.
                 a[n+1][i][j]=0.0; //Inicializo la aceleración en el paso t+h a cero.
-                for (int k=0; k<4 && k!=i;k++){
-                    a[n][i][j]=-G*masa[k]*(x[n][i][j]-x[n][k][j])/pow(pow(x[n][i][0]-x[n][k][0],2)+pow(x[n][i][1]-x[n][k][1],2),3.0/2.0);
-                };
+                for (int k = 0; k < 4; k++) {
+                    if (k == i) continue; // Saltamos el propio planeta
+    
+                    // Calculamos la distancia (mejor fuera del bucle 'j' para ahorrar CPU)
+                    double dx = x[n][i][0] - x[n][k][0];
+                    double dy = x[n][i][1] - x[n][k][1];
+                    double dist3 = pow(dx*dx + dy*dy, 1.5);
+    
+                    // Acumulamos la aceleración con +=
+                    a[n][i][j] += -G * masa[k] * (x[n][i][j] - x[n][k][j]) / dist3;
+}
                 //Una vez tengo la aceleración, calculo la posición en el paso t+h, utilizando la fórmula de Verlet.
                 x[n+1][i][j]=x[n][i][j]+v[n][i][j]*h+0.5*a[n][i][j]*pow(h,2);
                 //También calculo una velocidad angular que necesitaré más adelante.
                 w[i][j]=v[n][i][j]+0.5*a[n][i][j]*h;
                 //Calculo la aceleración en el paso t+h, utilizando la posición que acabo de calcular.
-                for (int k=0; k<4 && k!=i;k++){
-                    a[n+1][i][j]=-G*masa[k]*(x[n+1][i][j]-x[n+1][k][j])/pow(pow(x[n+1][i][0]-x[n+1][k][0],2)+pow(x[n+1][i][1]-x[n+1][k][1],2),3.0/2.0);
+                for (int k = 0; k < 4; k++) {
+                    if (k == i) continue; // Saltamos el propio planeta
+    
+                    // Calculamos la distancia (mejor fuera del bucle 'j' para ahorrar CPU)
+                    double dx = x[n+1][i][0] - x[n+1][k][0];
+                    double dy = x[n+1][i][1] - x[n+1][k][1];
+                    double dist3 = pow(dx*dx + dy*dy, 1.5);
+    
+                    // Acumulamos la aceleración con +=
+                    a[n+1][i][j] += -G * masa[k] * (x[n+1][i][j] - x[n+1][k][j]) / dist3;
                 };
                 //Calculo la velocidad en el paso t+h, utilizando la fórmula de Verlet.
                 v[n+1][i][j]=w[i][j]+0.5*a[n+1][i][j]*h;
