@@ -23,13 +23,15 @@ using namespace std;
 // Dejo un hueco para definir funciones
 //Función con el agoritmo de Verlet
 void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x[][4][2], double v[][4][2], double a[][4][2], double masa[]);
-//Función para reescalar los datos
-
+//Función para reescalar los datos de entrada
+void reescalar(double x0[][2], double v0[][2], double masa[]);
 //Función para deshacer el reescalado de los datos obtenidos
-
+void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], double masa[]);
 //Función para leer el fichero de datos de entrada
+void leer_datos(ifstream data, double x0[][2], double v0[][2], double masa[]);
 
 //Función para escribir en el fichero de salida
+void escribir_datos(ofstream trayectoriasverlet, double x[][4][2], double v[][4][2], double a[][4][2], double t[], int N);
 
 
 int main() {
@@ -49,6 +51,12 @@ int main() {
     t=0.0;
     h=0.01;
 
+    //Dado el tiempo inicial, el paso y el número de pasos, genero un vector de tiempos para cada paso.
+    double tiempo[N];
+    for (int i=0; i<N; i++){
+        tiempo[i]=i*h;
+    };
+
     //Creo las matrices con las condiciones iniciales.
     double x0[4][2];    //Posiciones iniciales. x0[numero de planetas][coordenada]
     double v0[4][2];    //Velocidades iniciales. v0[numero de planetas][coordenada]
@@ -60,8 +68,6 @@ int main() {
 
     //Necesito también un vector con las masas de cada planeta.
     double masa[4];
-    
-
 
     return 0;
 }
@@ -133,3 +139,39 @@ void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x
     return;
     
 };
+
+void leer_datos(ifstream data, double x0[][2], double v0[][2], double masa[]) {
+    //Esta función lee los datos de entrada del fichero "condiciones_iniciales.txt" y los almacena en las matrices correspondientes.
+    //El formato del fichero es el siguiente:
+    //Planeta 1: masa, posición x, posición y, velocidad x, velocidad y
+    //Planeta 2: masa, posición x, posición y, velocidad x, velocidad y
+    //Planeta 3: masa, posición x, posición y, velocidad x, velocidad y
+    //Planeta 4: masa, posición x, posición y, velocidad x, velocidad y
+
+    for (int i=0; i<4; i++){
+        data >> masa[i] >> x0[i][0] >> x0[i][1] >> v0[i][0] >> v0[i][1];
+    };
+
+    return;
+};
+//EDITAR MÁS ADELANTE ESCRIBIR DATOS
+void escribir_datos(ofstream trayectoriasverlet, double x[][4][2], double v[][4][2], double a[][4][2], double t[], int N) {
+    //Esta función escribe los datos de posición, velocidad y aceleración de cada planeta en cada paso de tiempo en el fichero "posiciones_planetas.dat".
+    //El formato del fichero es el siguiente:
+    //Paso de tiempo 1: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planeta 2, posición x planeta 3, posición y planeta 3, velocidad x planeta 3, velocidad y planeta 3, aceleración x planeta 3, aceleración y planeta 3, posición x planeta 4, posición y planeta 4, velocidad x planeta 4, velocidad y planeta 4, aceleración x planeta 4, aceleración y planeta 4
+    //Paso de tiempo 2: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planeta 2, posición x planeta 3, posición y planeta 3, velocidad x planeta 3, velocidad y planeta 3, aceleración x planeta 3, aceleración y planeta 3, posición x planeta 4, posición y planeta 4, velocidad x planeta 4, velocidad y planeta 4, aceleración x planeta 4, aceleración y planeta 4
+    //...
+    //Paso de tiempo N: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planoeta
+
+    for (int n=0; n<N; n++){
+        trayectoriasverlet << t[n] << " ";
+        for (int i=0; i<4; i++){
+            for (int j=0; j<2; j++){
+                trayectoriasverlet << x[n][i][j] << " " << v[n][i][j] << " " << a[n][i][j] << " ";
+            }
+        };
+        trayectoriasverlet << endl;
+    };
+    return;
+};
+
