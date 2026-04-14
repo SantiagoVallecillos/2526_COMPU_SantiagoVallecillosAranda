@@ -24,14 +24,14 @@ using namespace std;
 //Función con el agoritmo de Verlet
 void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x[][4][2], double v[][4][2], double a[][4][2], double masa[]);
 //Función para reescalar los datos de entrada
-void reescalar(double x0[][2], double v0[][2], double masa[]);
+void reescalar(double &h, double x0[][2], double v0[][2], double masa[]);
 //Función para deshacer el reescalado de los datos obtenidos
-void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], double masa[]);
+void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], int N);
 //Función para leer el fichero de datos de entrada
-void leer_datos(ifstream data, double x0[][2], double v0[][2], double masa[]);
+void leer_datos(ifstream &data, double x0[][2], double v0[][2], double masa[]);
 
 //Función para escribir en el fichero de salida
-void escribir_datos(ofstream trayectoriasverlet, double x[][4][2], double v[][4][2], double a[][4][2], double t[], int N);
+void escribir_datos_pos(ofstream &trayectoriasverlet, double x[][4][2], int N);
 
 
 int main() {
@@ -51,11 +51,6 @@ int main() {
     t=0.0;
     h=0.01;
 
-    //Dado el tiempo inicial, el paso y el número de pasos, genero un vector de tiempos para cada paso.
-    double tiempo[N];
-    for (int i=0; i<N; i++){
-        tiempo[i]=i*h;
-    };
 
     //Creo las matrices con las condiciones iniciales.
     double x0[4][2];    //Posiciones iniciales. x0[numero de planetas][coordenada]
@@ -68,6 +63,30 @@ int main() {
 
     //Necesito también un vector con las masas de cada planeta.
     double masa[4];
+
+    //Leo los datos de entrada del fichero y los almaceno en las matrices correspondientes.
+    leer_datos(data, x0, v0, masa);
+
+    //Reescalo los datos de entrada para no trabajar con números muy grandes o muy pequeños.
+    reescalar(h, x0, v0, masa);
+
+    //Dado el tiempo inicial, el paso y el número de pasos, genero un vector de tiempos para cada paso.
+    //Este vector de tiempo está afectado por el reescalado, que se aplicó al paso de tiempo. Más adelante se deshará el reescalado de este vector de tiempo.
+    double tiempo[N];
+    for (int i=0; i<N; i++){
+        tiempo[i]=i*h;
+    };
+
+    //Aplico el algoritmo de Verlet para calcular la posición, velocidad y aceleración de cada planeta en cada paso de tiempo.
+    Verlet(t, h, N, x0, v0, x, v, a, masa);
+
+    //Deshago el reescalado de los datos obtenidos.
+    deshacer_reescalado(x, v, a, masa, N);
+
+    //Escribo los datos de posición de cada planeta en cada paso de tiempo en el fichero de salida.
+    escribir_datos_pos(trayectoriasverlet, x, N);
+
+    //Una vez hecho esto, la simulación de las trayectorias está completa.
 
     return 0;
 }
@@ -140,7 +159,7 @@ void Verlet(double &t, double h, int N, double x0[][2], double v0[][2], double x
     
 };
 
-void leer_datos(ifstream data, double x0[][2], double v0[][2], double masa[]) {
+void leer_datos(ifstream &data, double x0[][2], double v0[][2], double masa[]) {
     //Esta función lee los datos de entrada del fichero "condiciones_iniciales.txt" y los almacena en las matrices correspondientes.
     //El formato del fichero es el siguiente:
     //Planeta 1: masa, posición x, posición y, velocidad x, velocidad y
@@ -154,24 +173,62 @@ void leer_datos(ifstream data, double x0[][2], double v0[][2], double masa[]) {
 
     return;
 };
-//EDITAR MÁS ADELANTE ESCRIBIR DATOS
-void escribir_datos(ofstream trayectoriasverlet, double x[][4][2], double v[][4][2], double a[][4][2], double t[], int N) {
-    //Esta función escribe los datos de posición, velocidad y aceleración de cada planeta en cada paso de tiempo en el fichero "posiciones_planetas.dat".
-    //El formato del fichero es el siguiente:
-    //Paso de tiempo 1: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planeta 2, posición x planeta 3, posición y planeta 3, velocidad x planeta 3, velocidad y planeta 3, aceleración x planeta 3, aceleración y planeta 3, posición x planeta 4, posición y planeta 4, velocidad x planeta 4, velocidad y planeta 4, aceleración x planeta 4, aceleración y planeta 4
-    //Paso de tiempo 2: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planeta 2, posición x planeta 3, posición y planeta 3, velocidad x planeta 3, velocidad y planeta 3, aceleración x planeta 3, aceleración y planeta 3, posición x planeta 4, posición y planeta 4, velocidad x planeta 4, velocidad y planeta 4, aceleración x planeta 4, aceleración y planeta 4
-    //...
-    //Paso de tiempo N: tiempo, posición x planeta 1, posición y planeta 1, velocidad x planeta 1, velocidad y planeta 1, aceleración x planeta 1, aceleración y planeta 1, posición x planeta 2, posición y planeta 2, velocidad x planeta 2, velocidad y planeta 2, aceleración x planeta 2, aceleración y planoeta
 
-    for (int n=0; n<N; n++){
-        trayectoriasverlet << t[n] << " ";
-        for (int i=0; i<4; i++){
-            for (int j=0; j<2; j++){
-                trayectoriasverlet << x[n][i][j] << " " << v[n][i][j] << " " << a[n][i][j] << " ";
-            }
-        };
-        trayectoriasverlet << endl;
+void escribir_datos_pos(ofstream &trayectoriasverlet, double x[][4][2], int N) {
+    //Esta función escribe los datos de posición de cada planeta en cada paso de tiempo en el fichero "posiciones_planetas.dat".
+    //El formato del fichero es el siguiente:
+    //Paso de tiempo 1: posición x del planeta 1, posición y del planeta 1 [salto de línea] posición x del planeta 2, posición y del planeta 2, ...
+    int i;
+    int j;
+
+    for (i=0; i<N; i++)
+    {
+        for(j=0; j<4; j++){
+            trayectoriasverlet << x[i][j][0] << ", " << x[i][j][1] << endl;
+        }
     };
+
     return;
 };
 
+void reescalar(double &h, double x0[][2], double v0[][2], double masa[]){
+    double c;
+    double G;
+    double M;
+
+    c=1.496e11;
+    G=6.67430e-11;
+    M=2e30;
+    //Reescalo todas las posiciones, velocidades y masas.
+    for (int i=0; i<4; i++){
+        x0[i][0]=x0[i][0]/c;
+        x0[i][1]=x0[i][1]/c;
+        v0[i][0]=v0[i][0]*pow(c,1.5)/(c*pow(G*M,0.5));
+        v0[i][1]=v0[i][1]*pow(c,1.5)/(c*pow(G*M,0.5));
+        masa[i]=masa[i]/M;
+    };
+    h=h*pow(G*M/pow(c,3),0.5);
+
+};
+
+void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], int N){
+    double c;
+    double G;
+    double M;
+
+    c=1.496e11;
+    G=6.67430e-11;
+    M=2e30;
+    //Deshago el reescalado de todas las posiciones, velocidades, aceleraciones y masas.
+    for (int n=0; n<N; n++){
+        for (int i=0; i<4; i++){
+            for (int j=0; j<2; j++){
+                x[n][i][j]=x[n][i][j]*c;
+                v[n][i][j]=v[n][i][j]*c*pow(G*M/pow(c,3),-0.5);
+                a[n][i][j]=a[n][i][j]*G*M/pow(c,2);
+            };
+            masa[i]=masa[i]*M;
+        }
+    };
+    return;
+};
