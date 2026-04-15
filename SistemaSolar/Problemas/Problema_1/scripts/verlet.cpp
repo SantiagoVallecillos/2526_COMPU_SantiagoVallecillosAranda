@@ -13,7 +13,7 @@ Finalmente, se almacenarán en un nuevo fichero para, posteriormente, poder anim
 
 
 #include <iostream>
-#include <math.h>
+#include <math.h> // esto es C
 #include <fstream>
 #include <string>
 #include <vector>
