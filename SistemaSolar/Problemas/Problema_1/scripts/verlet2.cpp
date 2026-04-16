@@ -4,31 +4,65 @@
 #include <iostream>
 #include <vector>
 
-constexpr std::size_t kNumPlanetas = 4;
-constexpr std::size_t kNumCoordenadas = 2;
+using namespace std;
+
+constexpr size_t kNumPlanetas = 4;
+constexpr size_t kNumCoordenadas = 2;
 constexpr double kG = 6.67430e-11;
+constexpr double kUnidadDistancia = 1.496e11;
+constexpr double kUnidadMasa = 2.0e30;
 
-using Vector2D = std::array<double, kNumCoordenadas>;
-using PlanetArray = std::array<Vector2D, kNumPlanetas>;
-using Trajectory = std::vector<PlanetArray>;
-using MassArray = std::array<double, kNumPlanetas>;
+using Vector2D = array<double, kNumCoordenadas>;
+using PlanetArray = array<Vector2D, kNumPlanetas>;
+using Trajectory = vector<PlanetArray>;
+using EnergyArray = vector<array<double, kNumPlanetas>>;
+using MassArray = array<double, kNumPlanetas>;
 
-void leer_datos(std::ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& masa);
+void leer_datos(ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& masa);
 void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa);
 void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray& masa);
-void escribir_datos_pos(std::ofstream& out, const Trajectory& x);
+void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa);
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa);
+void escribir_datos(ofstream& out, const Trajectory& x);
+void escribir_datos_energia(ofstream& out, const EnergyArray& E);
+void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& periodos);
+void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p);
+void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPlanetas>& periodos);
 
 int main() {
-    std::ifstream data("condiciones_iniciales.txt");
+    ifstream data("condiciones_iniciales.txt");
     if (!data) {
-        std::cerr << "Error: no se pudo abrir condiciones_iniciales.txt\n";
+        cerr << "Error: no se pudo abrir condiciones_iniciales.txt\n";
         return 1;
     }
 
-    std::ofstream trayectorias("posiciones_planetas.dat");
+    ofstream trayectorias("posiciones_planetas.dat");
     if (!trayectorias) {
-        std::cerr << "Error: no se pudo crear posiciones_planetas.dat\n";
+        cerr << "Error: no se pudo crear posiciones_planetas.dat\n";
+        return 1;
+    }
+
+    ofstream momento_angular("momento_angular.dat");
+    if (!momento_angular) {
+        cerr << "Error: no se pudo crear momento_angular.dat\n";
+        return 1;
+    }
+
+    ofstream energia("energia.dat");
+    if (!energia) {
+        cerr << "Error: no se pudo crear energia.dat\n";
+        return 1;
+    }
+
+    ofstream momento_lineal("momento_lineal.dat");
+    if (!momento_lineal) {
+        cerr << "Error: no se pudo crear momento_lineal.dat\n";
+        return 1;
+    }
+
+    ofstream periodo_file("periodos.dat");
+    if (!periodo_file) {
+        cerr << "Error: no se pudo crear periodos.dat\n";
         return 1;
     }
 
@@ -43,83 +77,63 @@ int main() {
     leer_datos(data, x0, v0, masa);
     reescalar(h, x0, v0, masa);
 
+    vector<double> tiempo(N);
+    for (int i = 0; i < N; ++i) {
+        tiempo[i] = i * h;
+    }
+
     Trajectory x(N, PlanetArray{});
     Trajectory v(N, PlanetArray{});
     Trajectory a(N, PlanetArray{});
+    EnergyArray E(N);
+    Trajectory L(N, PlanetArray{});
+    Trajectory p(N, PlanetArray{});
+    array<double, kNumPlanetas> periodo{};
 
-    x[0] = x0;
-    v[0] = v0;
-    a[0] = calcular_aceleraciones(x[0], masa);
-
-    for (int n = 0; n + 1 < N; ++n) {
-        for (std::size_t i = 0; i < kNumPlanetas; ++i) {
-            for (std::size_t j = 0; j < kNumCoordenadas; ++j) {
-                x[n + 1][i][j] = x[n][i][j] + v[n][i][j] * h + 0.5 * a[n][i][j] * h * h;
-            }
-        }
-
-        a[n + 1] = calcular_aceleraciones(x[n + 1], masa);
-
-        for (std::size_t i = 0; i < kNumPlanetas; ++i) {
-            for (std::size_t j = 0; j < kNumCoordenadas; ++j) {
-                const double w = v[n][i][j] + 0.5 * a[n][i][j] * h;
-                v[n + 1][i][j] = w + 0.5 * a[n + 1][i][j] * h;
-            }
-        }
-
-        t += h;
-    }
+    Verlet(t, h, N, x0, v0, x, v, a, masa);
+    escribir_datos(trayectorias, x);
 
     deshacer_reescalado(x, v, a, masa);
-    escribir_datos_pos(trayectorias, x);
+    invariantes(x, v, a, masa, E, L, p);
+    periodos(E, masa, periodo);
+
+    escribir_datos(momento_angular, L);
+    escribir_datos(momento_lineal, p);
+    escribir_datos_energia(energia, E);
+    escribir_datos_periodo(periodo_file, periodo);
 
     return 0;
 }
 
-void leer_datos(std::ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
-    for (std::size_t i = 0; i < kNumPlanetas; ++i) {
+void leer_datos(ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
         data >> masa[i] >> x0[i][0] >> x0[i][1] >> v0[i][0] >> v0[i][1];
     }
 }
 
-void escribir_datos_pos(std::ofstream& out, const Trajectory& x) {
-    for (std::size_t i = 0; i < x.size(); ++i) {
-        for (std::size_t planeta = 0; planeta < kNumPlanetas; ++planeta) {
-            out << x[i][planeta][0] << ", " << x[i][planeta][1] << '\n';
-        };
-        out << '\n';
-    }
-}
-
 void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
-    constexpr double c = 1.496e11;
-    constexpr double M = 2.0e30;
-
-    for (std::size_t i = 0; i < kNumPlanetas; ++i) {
-        x0[i][0] /= c;
-        x0[i][1] /= c;
-        v0[i][0] *= std::pow(c, 1.5) / (c * std::sqrt(kG * M));
-        v0[i][1] *= std::pow(c, 1.5) / (c * std::sqrt(kG * M));
-        masa[i] /= M;
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        x0[i][0] /= kUnidadDistancia;
+        x0[i][1] /= kUnidadDistancia;
+        v0[i][0] *= pow(kUnidadDistancia, 1.5) / (kUnidadDistancia * sqrt(kG * kUnidadMasa));
+        v0[i][1] *= pow(kUnidadDistancia, 1.5) / (kUnidadDistancia * sqrt(kG * kUnidadMasa));
+        masa[i] /= kUnidadMasa;
     }
 
-    h *= std::sqrt(kG * M / (c * c * c));
+    h *= sqrt(kG * kUnidadMasa / (kUnidadDistancia * kUnidadDistancia * kUnidadDistancia));
 }
 
 void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray& masa) {
-    constexpr double c = 1.496e11;
-    constexpr double M = 2.0e30;
+    const double factorVel = 1.0 / (pow(kUnidadDistancia, 1.5) / (kUnidadDistancia * sqrt(kG * kUnidadMasa)));
+    const double factorAcel = kG * kUnidadMasa / (kUnidadDistancia * kUnidadDistancia);
 
     for (auto& paso : x) {
         for (auto& planeta : paso) {
             for (auto& componente : planeta) {
-                componente *= c;
+                componente *= kUnidadDistancia;
             }
         }
     }
-
-    const double factorVel = c / std::sqrt(kG * M / (c * c * c));
-    const double factorAcel = kG * M / (c * c);
 
     for (auto& paso : v) {
         for (auto& planeta : paso) {
@@ -137,27 +151,123 @@ void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray&
         }
     }
 
-    for (double& masa_planeta : masa) {
-        masa_planeta *= M;
+    for (auto& masa_planeta : masa) {
+        masa_planeta *= kUnidadMasa;
     }
 }
 
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa) {
     PlanetArray aceleraciones{};
 
-    for (std::size_t i = 0; i < kNumPlanetas; ++i) {
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
         aceleraciones[i] = {0.0, 0.0};
-        for (std::size_t k = 0; k < kNumPlanetas; ++k) {
+        for (size_t k = 0; k < kNumPlanetas; ++k) {
             if (k == i) {
                 continue;
             }
+
             const double dx = posiciones[i][0] - posiciones[k][0];
             const double dy = posiciones[i][1] - posiciones[k][1];
-            const double dist3 = std::pow(dx * dx + dy * dy, 1.5);
-            aceleraciones[i][0] += -kG * masa[k] * dx / dist3;
-            aceleraciones[i][1] += -kG * masa[k] * dy / dist3;
+            const double distanciaCubica = pow(dx * dx + dy * dy, 1.5);
+
+            aceleraciones[i][0] += -kG * masa[k] * dx / distanciaCubica;
+            aceleraciones[i][1] += -kG * masa[k] * dy / distanciaCubica;
         }
     }
 
     return aceleraciones;
+}
+
+void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa) {
+    t = 0.0;
+    x[0] = x0;
+    v[0] = v0;
+    a[0] = calcular_aceleraciones(x[0], masa);
+
+    for (int n = 0; n + 1 < N; ++n) {
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            for (size_t j = 0; j < kNumCoordenadas; ++j) {
+                x[n + 1][i][j] = x[n][i][j] + v[n][i][j] * h + 0.5 * a[n][i][j] * h * h;
+            }
+        }
+
+        a[n + 1] = calcular_aceleraciones(x[n + 1], masa);
+
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            for (size_t j = 0; j < kNumCoordenadas; ++j) {
+                v[n + 1][i][j] = v[n][i][j] + 0.5 * (a[n][i][j] + a[n + 1][i][j]) * h;
+            }
+        }
+
+        t += h;
+    }
+}
+
+void escribir_datos(ofstream& out, const Trajectory& x) {
+    for (const auto& paso : x) {
+        for (const auto& planeta : paso) {
+            out << planeta[0] << ", " << planeta[1] << '\n';
+        }
+        out << '\n';
+    }
+}
+
+void escribir_datos_energia(ofstream& out, const EnergyArray& E) {
+    for (const auto& paso : E) {
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            out << paso[i];
+            if (i + 1 < kNumPlanetas) {
+                out << ", ";
+            }
+        }
+        out << '\n';
+    }
+}
+
+void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& periodos) {
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        out << periodos[i] << '\n';
+    }
+}
+
+void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p) {
+    for (size_t n = 0; n < x.size(); ++n) {
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
+            double energia_potencial = 0.0;
+
+            for (size_t k = 0; k < kNumPlanetas; ++k) {
+                if (k == i) {
+                    continue;
+                }
+
+                const double dx = x[n][i][0] - x[n][k][0];
+                const double dy = x[n][i][1] - x[n][k][1];
+                const double distancia = sqrt(dx * dx + dy * dy);
+                energia_potencial += -kG * masa[i] * masa[k] / distancia;
+            }
+
+            E[n][i] = energia_cinetica + energia_potencial;
+            L[n][i][0] = masa[i] * (x[n][i][1] * v[n][i][0] - x[n][i][0] * v[n][i][1]);
+            L[n][i][1] = masa[i] * (x[n][i][0] * v[n][i][1] - x[n][i][1] * v[n][i][0]);
+            p[n][i][0] = masa[i] * v[n][i][0];
+            p[n][i][1] = masa[i] * v[n][i][1];
+        }
+    }
+}
+
+void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPlanetas>& periodos) {
+    array<double, kNumPlanetas> energia_media{};
+
+    for (const auto& paso : E) {
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            energia_media[i] += paso[i];
+        }
+    }
+
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        energia_media[i] /= static_cast<double>(E.size());
+        const double semieje_mayor = -kG * kUnidadMasa * masa[i] / (2.0 * energia_media[i]);
+        periodos[i] = 2.0 * M_PI * pow(semieje_mayor, 1.5) / sqrt(kG * kUnidadMasa);
+    }
 }

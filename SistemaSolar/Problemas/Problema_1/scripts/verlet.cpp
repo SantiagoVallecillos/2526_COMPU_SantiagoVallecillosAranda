@@ -29,30 +29,38 @@ void reescalar(double &h, double x0[][2], double v0[][2], double masa[]);
 void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], int N);
 //Función para leer el fichero de datos de entrada
 void leer_datos(ifstream &data, double x0[][2], double v0[][2], double masa[]);
-
 //Función para escribir en el fichero de salida
-void escribir_datos_pos(ofstream &trayectoriasverlet, double x[][4][2], int N);
-
+void escribir_datos(ofstream &datafileout, double x[][4][2], int N);
+void escribir_datos_energia(ofstream &datafileout, double E[][4], int N);
+void escribir_datos_periodo(ofstream &datafileout, double periodo[]);
+//Función para calcular los invariantes
+void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], int N);
+//Función para calcular los periodos utilizando la tercera ley de Kepler
+void periodos(double E[][4], double masa[], double periodos[], int N);
 
 int main() {
 
     //Añado los ficheros
     ifstream data("condiciones_iniciales.txt");
     ofstream trayectoriasverlet("posiciones_planetas.dat");
+    ofstream momento_angular("momento_angular.dat");
+    ofstream energia("energia.dat");
+    ofstream momento_lineal("momento_lineal.dat");
+    ofstream periodo_file("periodos.dat");
 
     //Añado las variables del tiempo y el paso
     double t;
     double h;
-    //Añado el número de pasos que queremos realizar
+    //Añado el número de pasos que queremos realizar. Esto es modificable según se necesite.
     int N;
     N=1000;
 
-    //Añado el tiempo inicial y el paso
+    //Añado el tiempo inicial y el paso. Esto tambien se debe modificar si es necesario.
     t=0.0;
     h=0.01;
 
 
-    //Creo las matrices con las condiciones iniciales.
+    //Creo las matrices con las condiciones iniciales. El numero de planetas puede ser modificado si hace falta.
     double x0[4][2];    //Posiciones iniciales. x0[numero de planetas][coordenada]
     double v0[4][2];    //Velocidades iniciales. v0[numero de planetas][coordenada]
 
@@ -63,6 +71,14 @@ int main() {
 
     //Necesito también un vector con las masas de cada planeta.
     double masa[4];
+
+    //Preparo las matrices de los invariantes.
+    double E[N][4]; //Energía total de cada planeta en cada paso de tiempo. E[numero de pasos][numero de planetas]
+    double L[N][4][2]; //Momento angular total de cada planeta en cada paso de tiempo. L[numero de pasos][numero de planetas][componente]
+    double p[N][4][2]; //Momento lineal de cada planeta en cada paso de tiempo. P[numero de pasos][numero de planetas][componente]
+    
+    //Preparo el vector de periodos de cada planeta.
+    double periodo[4];
 
     //Leo los datos de entrada del fichero y los almaceno en las matrices correspondientes.
     leer_datos(data, x0, v0, masa);
@@ -80,13 +96,25 @@ int main() {
     //Aplico el algoritmo de Verlet para calcular la posición, velocidad y aceleración de cada planeta en cada paso de tiempo.
     Verlet(t, h, N, x0, v0, x, v, a, masa);
 
-    //Deshago el reescalado de los datos obtenidos.
+    //Escribo los datos de posición de cada planeta en cada paso de tiempo en el fichero de salida.
+    //Lo hago antes de deshacer el reescalado para facilitar el dibujado de las trayectorias con Python.
+    escribir_datos(trayectoriasverlet, x, N);
+
+    //Deshago el reescalado de los datos obtenidos, para luego calcular los invariantes.
     deshacer_reescalado(x, v, a, masa, N);
 
-    //Escribo los datos de posición de cada planeta en cada paso de tiempo en el fichero de salida.
-    escribir_datos_pos(trayectoriasverlet, x, N);
-
     //Una vez hecho esto, la simulación de las trayectorias está completa.
+
+    //Calculo la energía total, el momento angular total y el momento lineal para cada planeta y paso de tiempo.
+    invariantes(x, v, a, masa, E, L, p, N);
+    //Asimismo, calculo los periodos.
+    periodos(E, masa, periodo, N);
+
+    //Escribo los resultados de energía, momento angular y momento lineal en los ficheros correspondientes, así como los periodos.
+    escribir_datos(momento_angular, L, N);
+    escribir_datos(momento_lineal, p, N);
+    escribir_datos_energia(energia, E, N);
+    escribir_datos_periodo(periodo_file, periodo);
 
     return 0;
 }
@@ -174,7 +202,7 @@ void leer_datos(ifstream &data, double x0[][2], double v0[][2], double masa[]) {
     return;
 };
 
-void escribir_datos_pos(ofstream &trayectoriasverlet, double x[][4][2], int N) {
+void escribir_datos(ofstream &datafileout, double x[][4][2], int N) {
     //Esta función escribe los datos de posición de cada planeta en cada paso de tiempo en el fichero "posiciones_planetas.dat".
     //El formato del fichero es el siguiente:
     //Paso de tiempo 1: posición x del planeta 1, posición y del planeta 1 [salto de línea] posición x del planeta 2, posición y del planeta 2, ...
@@ -184,7 +212,7 @@ void escribir_datos_pos(ofstream &trayectoriasverlet, double x[][4][2], int N) {
     for (i=0; i<N; i++)
     {
         for(j=0; j<4; j++){
-            trayectoriasverlet << x[i][j][0] << ", " << x[i][j][1] << endl;
+            datafileout << x[i][j][0] << ", " << x[i][j][1] << endl;
         }
     };
 
@@ -232,3 +260,102 @@ void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], d
     };
     return;
 };
+
+void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], int N){
+    //Esta función calcula la energía total, el momento angular total y el momento lineal para cada planeta y paso de tiempo.
+    //La energía total se calcula como la suma de la energía cinética y la energía potencial.
+    //El momento angular total se calcula como el producto vectorial entre el vector de posición y el vector de velocidad.
+    //El momento lineal se calcula como el producto entre la masa y la velocidad.
+    double G=6.67430e-11;
+
+    for (int n=0; n<N; n++){
+        for (int i=0; i<4; i++){
+            //Calculo la energía cinética.
+            double energia_cinetica=0.0;
+            for (int j=0; j<2; j++){
+                energia_cinetica+=0.5*masa[i]*pow(v[n][i][j],2);
+            };
+            //Calculo la energía potencial.
+            double energia_potencial=0.0;
+            for (int k=0; k<4; k++){
+                if (k==i) continue;
+                double dx=x[n][i][0]-x[n][k][0];
+                double dy=x[n][i][1]-x[n][k][1];
+                double dist=sqrt(pow(dx,2)+pow(dy,2));
+                energia_potencial+=-G*masa[i]*masa[k]/dist;
+            };
+            //Calculo la energía total.
+            E[n][i]=energia_cinetica+energia_potencial;
+
+            //Calculo el momento angular total.
+            L[n][i][0]=masa[i]*(x[n][i][1]*v[n][i][0]-x[n][i][0]*v[n][i][1]);
+            L[n][i][1]=masa[i]*(x[n][i][0]*v[n][i][1]-x[n][i][1]*v[n][i][0]);
+
+            //Calculo el momento lineal.
+            p[n][i][0]=masa[i]*v[n][i][0];
+            p[n][i][1]=masa[i]*v[n][i][1];
+        }
+    };
+
+
+    return;
+};
+
+void escribir_datos_energia(ofstream &datafileout, double E[][4], int N) {
+    //Esta función escribe los datos de energía total de cada planeta en cada paso de tiempo en el fichero "energia.dat".
+    //El formato del fichero es el siguiente:
+    //Paso de tiempo 1: energía total del planeta 1, energía total del planeta 2, energía total del planeta 3, energía total del planeta 4 [salto de línea]
+    int i;
+    int j;
+
+    for (i=0; i<N; i++)
+    {
+        for(j=0; j<4; j++){
+            datafileout << E[i][j] << "\n";
+        }
+        datafileout << endl;
+    };
+
+    return;
+};
+
+void periodos(double E[][4], double masa[], double periodos[], int N){
+    //Esta función calcula los periodos de cada planeta utilizando la tercera ley de Kepler.
+    //La tercera ley de Kepler establece que el periodo de un planeta es proporcional a la raíz cúbica del semieje mayor de su órbita.
+    //El semieje mayor se puede calcular a partir de la energía total del planeta utilizando la fórmula: a = -G*M/(2*E), donde G es la constante de gravitación universal, M es la masa del sol y E es la energía total del planeta.
+    double G=6.67430e-11;
+    double M=2e30;
+    double energiasmedias[4];
+
+    //Calculo la media de la energía total de cada planeta a lo largo de los pasos de tiempo.
+    for (int i=0; i<4; i++){
+        double suma_energias=0.0;
+        for (int n=0; n<N; n++){
+            suma_energias+=E[n][i];
+        };
+        energiasmedias[i]=suma_energias/N;
+    };
+    //Calculo el periodo usando la tercera ley de Kepler.
+    for (int i=0; i<4; i++){
+        double a=-G*M*masa[i]/(2*energiasmedias[i]);
+        periodos[i]=2*M_PI*pow(a,1.5)/pow(G*M,0.5);
+    };
+       
+
+    return;
+};
+
+void escribir_datos_periodo(ofstream &datafileout, double periodo[]){
+    //Esta función escribe los datos de periodo de cada planeta en el fichero "periodos.dat".
+    //El formato del fichero es el siguiente:
+    //Planeta 1: periodo del planeta 1 [salto de línea]
+    //Planeta 2: periodo del planeta 2 [salto de línea]
+    //Planeta 3: periodo del planeta 3 [salto de línea]
+    //Planeta 4: periodo del planeta 4 [salto de línea]
+
+    for (int i=0; i<4; i++){
+        datafileout << periodo[i] << "\n";
+    };
+
+    return;
+}
