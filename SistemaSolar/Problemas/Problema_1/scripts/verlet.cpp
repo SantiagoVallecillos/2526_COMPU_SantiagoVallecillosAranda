@@ -34,7 +34,7 @@ void escribir_datos(ofstream &datafileout, double x[][4][2], int N);
 void escribir_datos_energia(ofstream &datafileout, double E[][4], int N);
 void escribir_datos_periodo(ofstream &datafileout, double periodo[]);
 //Función para calcular los invariantes
-void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], int N);
+void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], double mod_p[][4], int N);
 //Función para calcular los periodos utilizando la tercera ley de Kepler
 void periodos(double E[][4], double masa[], double periodos[], int N);
 
@@ -76,7 +76,8 @@ int main() {
     double E[N][4]; //Energía total de cada planeta en cada paso de tiempo. E[numero de pasos][numero de planetas]
     double L[N][4][2]; //Momento angular total de cada planeta en cada paso de tiempo. L[numero de pasos][numero de planetas][componente]
     double p[N][4][2]; //Momento lineal de cada planeta en cada paso de tiempo. P[numero de pasos][numero de planetas][componente]
-    
+    double mod_p[N][4]; //Módulo del momento lineal de cada planeta en cada paso de tiempo. mod_p[numero de pasos][numero de planetas]
+
     //Preparo el vector de periodos de cada planeta.
     double periodo[4];
 
@@ -106,13 +107,13 @@ int main() {
     //Una vez hecho esto, la simulación de las trayectorias está completa.
 
     //Calculo la energía total, el momento angular total y el momento lineal para cada planeta y paso de tiempo.
-    invariantes(x, v, a, masa, E, L, p, N);
+    invariantes(x, v, a, masa, E, L, p, mod_p, N);
     //Asimismo, calculo los periodos.
     periodos(E, masa, periodo, N);
 
     //Escribo los resultados de energía, momento angular y momento lineal en los ficheros correspondientes, así como los periodos.
     escribir_datos(momento_angular, L, N);
-    escribir_datos(momento_lineal, p, N);
+    escribir_datos_energia(momento_lineal, mod_p, N);
     escribir_datos_energia(energia, E, N);
     escribir_datos_periodo(periodo_file, periodo);
 
@@ -261,7 +262,7 @@ void deshacer_reescalado(double x[][4][2], double v[][4][2], double a[][4][2], d
     return;
 };
 
-void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], int N){
+void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double masa[], double E[][4], double L[][4][2], double p[][4][2], double mod_p[][4], int N){
     //Esta función calcula la energía total, el momento angular total y el momento lineal para cada planeta y paso de tiempo.
     //La energía total se calcula como la suma de la energía cinética y la energía potencial.
     //El momento angular total se calcula como el producto vectorial entre el vector de posición y el vector de velocidad.
@@ -291,9 +292,11 @@ void invariantes(double x[][4][2], double v[][4][2], double a[][4][2], double ma
             L[n][i][0]=masa[i]*(x[n][i][1]*v[n][i][0]-x[n][i][0]*v[n][i][1]);
             L[n][i][1]=masa[i]*(x[n][i][0]*v[n][i][1]-x[n][i][1]*v[n][i][0]);
 
-            //Calculo el momento lineal.
+            //Calculo el momento lineal y su módulo.
             p[n][i][0]=masa[i]*v[n][i][0];
             p[n][i][1]=masa[i]*v[n][i][1];
+
+            mod_p[n][i]=sqrt(pow(p[n][i][0],2)+pow(p[n][i][1],2));
         }
     };
 
