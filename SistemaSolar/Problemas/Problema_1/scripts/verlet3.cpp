@@ -42,6 +42,18 @@ int main() {
         return 1;
     }
 
+    ofstream velocidades("velocidades_planetas.dat");
+    if (!velocidades) {
+        cerr << "Error: no se pudo crear velocidades_planetas.dat\n";
+        return 1;
+    }
+
+    ofstream aceleraciones("aceleraciones_planetas.dat");
+    if (!aceleraciones) {
+        cerr << "Error: no se pudo crear aceleraciones_planetas.dat\n";
+        return 1;
+    }
+
     ofstream momento_angular("momento_angular.dat");
     if (!momento_angular) {
         cerr << "Error: no se pudo crear momento_angular.dat\n";
@@ -66,9 +78,9 @@ int main() {
         return 1;
     }
 
-    constexpr int N = 1000;
+    constexpr int N = 15000;
     double t = 0.0;
-    double h = 0.01;
+    double h = 86400;
 
     PlanetArray x0{};
     PlanetArray v0{};
@@ -93,6 +105,8 @@ int main() {
 
     Verlet(t, h, N, x0, v0, x, v, a, masa);
     escribir_datos(trayectorias, x);
+    escribir_datos(velocidades, v);
+    escribir_datos(aceleraciones, a);
 
     deshacer_reescalado(x, v, a, masa);
     invariantes(x, v, a, masa, E, L, p, mod_p);
@@ -160,9 +174,22 @@ void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray&
 
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa) {
     PlanetArray aceleraciones{};
+    
+    // Masa del sol en unidades escaladas
+    constexpr double masa_sol = 1.989e30 / 2.0e30;
 
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         aceleraciones[i] = {0.0, 0.0};
+        
+        // Contribución del sol (ubicado en el origen)
+        const double dx_sol = posiciones[i][0];
+        const double dy_sol = posiciones[i][1];
+        const double dist_sol_cubica = pow(dx_sol * dx_sol + dy_sol * dy_sol, 1.5);
+        
+        aceleraciones[i][0] += -masa_sol * dx_sol / dist_sol_cubica;
+        aceleraciones[i][1] += -masa_sol * dy_sol / dist_sol_cubica;
+        
+        // Contribución de los otros planetas
         for (size_t k = 0; k < kNumPlanetas; ++k) {
             if (k == i) {
                 continue;
@@ -172,8 +199,8 @@ PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArra
             const double dy = posiciones[i][1] - posiciones[k][1];
             const double distanciaCubica = pow(dx * dx + dy * dy, 1.5);
 
-            aceleraciones[i][0] += -kG * masa[k] * dx / distanciaCubica;
-            aceleraciones[i][1] += -kG * masa[k] * dy / distanciaCubica;
+            aceleraciones[i][0] += -masa[k] * dx / distanciaCubica;
+            aceleraciones[i][1] += -masa[k] * dy / distanciaCubica;
         }
     }
 
@@ -233,7 +260,10 @@ void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, 
     for (size_t n = 0; n < x.size(); ++n) {
         for (size_t i = 0; i < kNumPlanetas; ++i) {
             const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
-            double energia_potencial = 0.0;
+            // ✅ Inicializamos la energía potencial con la del Sol
+            double masa_sol = 1.989e30; // Masa del sol
+            double dist_sol = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
+            double energia_potencial = -kG * masa_sol * masa[i] / dist_sol;
 
             for (size_t k = 0; k < kNumPlanetas; ++k) {
                 if (k == i) {
@@ -267,7 +297,7 @@ void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPla
 
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         energia_media[i] /= static_cast<double>(E.size());
-        const double semieje_mayor = kG * kUnidadMasa * masa[i] / (2.0 * energia_media[i]);
+        const double semieje_mayor = -kG * kUnidadMasa * masa[i] / (2.0 * energia_media[i]);
         periodos[i] = 2.0 * M_PI * pow(semieje_mayor, 1.5) / sqrt(kG * kUnidadMasa);
     }
 }
