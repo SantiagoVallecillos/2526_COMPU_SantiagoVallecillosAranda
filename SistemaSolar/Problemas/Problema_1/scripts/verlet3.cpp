@@ -78,7 +78,7 @@ int main() {
         return 1;
     }
 
-    constexpr int N = 15000;
+    constexpr int N = 1500;
     double t = 0.0;
     double h = 86400;
 
@@ -261,7 +261,7 @@ void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, 
         for (size_t i = 0; i < kNumPlanetas; ++i) {
             const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
             // ✅ Inicializamos la energía potencial con la del Sol
-            double masa_sol = 1.989e30; // Masa del sol
+            double masa_sol = 2e30; // Masa del sol
             double dist_sol = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
             double energia_potencial = -kG * masa_sol * masa[i] / dist_sol;
 
