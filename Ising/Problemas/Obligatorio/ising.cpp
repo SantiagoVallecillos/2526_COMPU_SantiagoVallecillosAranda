@@ -30,16 +30,16 @@ int main()
     double dseta, P_S, T[2], T_m[10], E_S, p, rand, deltaE, mN16, mN32, mN64;
 
     FILE *ford1;
-    ford1 = fopen("ising_1.txt", "w");    //Fichero para los espines de organización ordenada 1 con T baja
+    ford1 = fopen("ising_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
 
     FILE *ford2;
-    ford2 = fopen("ising_2.txt", "w");    //Fichero para los espines de organización ordenada 1 con T alta
+    ford2 = fopen("ising_2_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T alta
 
     FILE *fdesord1;
-    fdesord1 = fopen("ising_desord1.txt", "w");    //Fichero para los espines de organización desordenada con T baja
+    fdesord1 = fopen("ising_desord1_data.dat", "w");    //Fichero para los espines de organización desordenada con T baja
 
     FILE *fdesord2;
-    fdesord2 = fopen("ising_desord2.txt", "w");    //Fichero para los espines de organización desordenada con T alta
+    fdesord2 = fopen("ising_desord2_data.dat", "w");    //Fichero para los espines de organización desordenada con T alta
 
     FILE *mag16;
     mag16 = fopen("magn16.txt", "w"); //Fichero para la magnetización con N = 16
@@ -67,15 +67,19 @@ int main()
         //Lo metemos todo en los ficheros 
         for(m = 0; m < N; m++)
         {
-            fprintf(ford1, "%i\t%i\t%i\t", n, m, sord[n][m]);
-            fprintf(fdesord1, "%i\t%i\t%i\t", n, m, sdesord[n][m]);
+            if(m < N-1) fprintf(ford1, "%i,", sord[n][m]);
+            else fprintf(ford1, "%i", sord[n][m]);
+            if(m < N-1) fprintf(fdesord1, "%i,", sdesord[n][m]);
+            else fprintf(fdesord1, "%i", sdesord[n][m]);
         }
+        fprintf(ford1, "\n");
+        fprintf(fdesord1, "\n");
     }
-    fprintf(ford1, "\n");
-    fprintf(fdesord1, "\n");
+    fprintf(ford1, "\n\n");
+    fprintf(fdesord1, "\n\n");
 
     //Hacemos el bucle para ver si cambian de espin
-    for(i = 0; i <= 100000000; i++)
+    for(i = 0; i <= 1000000; i++)
     {
         randn = gsl_rng_uniform_int(tau, N-1);
         randm = gsl_rng_uniform_int(tau, N-1);
@@ -114,8 +118,10 @@ int main()
             { 
                 for(m = 0; m < N; m++)
                 {
-                    fprintf(ford1, "%i\t%i\t%i\t", n, m, sord[n][m]);
+                    if(m < N-1) fprintf(ford1, "%i,", sord[n][m]);
+                    else fprintf(ford1, "%i", sord[n][m]);
                 }
+                fprintf(ford1, "\n");
             }
             fprintf(ford1, "\n");
         }
@@ -153,8 +159,10 @@ int main()
             { 
                 for(m = 0; m < N; m++)
                 {
-                    fprintf(fdesord1, "%i\t%i\t%i\t", n, m, sdesord[n][m]);
+                    if(m < N-1) fprintf(fdesord1, "%i,", sdesord[n][m]);
+                    else fprintf(fdesord1, "%i", sdesord[n][m]);
                 }
+                fprintf(fdesord1, "\n");
             }
             fprintf(fdesord1, "\n");
         }
@@ -174,14 +182,18 @@ int main()
         //Lo metemos todo en los ficheros 
         for(m = 0; m < N; m++)
         {
-            fprintf(ford2, "%i\t%i\t%i\t", n, m, sord[n][m]);
-            fprintf(fdesord2, "%i\t%i\t%i\t", n, m, sdesord[n][m]);
+            if(m < N-1) fprintf(ford2, "%i,", sord[n][m]);
+            else fprintf(ford2, "%i", sord[n][m]);
+            if(m < N-1) fprintf(fdesord2, "%i,", sdesord[n][m]);
+            else fprintf(fdesord2, "%i", sdesord[n][m]);
         }
+        fprintf(ford2, "\n");
+        fprintf(fdesord2, "\n");
     }
     fprintf(ford2, "\n");
     fprintf(fdesord2, "\n");
 
-    for(i = 0; i <= 100000000; i++)
+    for(i = 0; i <= 1000000; i++)
     {
         randn = gsl_rng_uniform_int(tau, N-1);
         randm = gsl_rng_uniform_int(tau, N-1);
@@ -219,8 +231,10 @@ int main()
             { 
                 for(m = 0; m < N; m++)
                 {
-                    fprintf(ford2, "%i\t%i\t%i\t", n, m, sord[n][m]);
+                    if(m < N-1) fprintf(ford2, "%i,", sord[n][m]);
+                    else fprintf(ford2, "%i", sord[n][m]);
                 }
+                fprintf(ford2, "\n");
             }
             fprintf(ford2, "\n");
         }
@@ -259,8 +273,10 @@ int main()
             { 
                 for(m = 0; m < N; m++)
                 {
-                    fprintf(fdesord2, "%i\t%i\t%i\t", n, m, sdesord[n][m]);
+                    if(m < N-1) fprintf(fdesord2, "%i,", sdesord[n][m]);
+                    else fprintf(fdesord2, "%i", sdesord[n][m]);
                 }
+                fprintf(fdesord2, "\n");
             }
             fprintf(fdesord2, "\n");
         }
@@ -293,7 +309,7 @@ int main()
             }
         }
         //Hacemos el bucle para ver si cambia de espin
-        for(j = 0; j <= 100000; j++)
+        for(j = 0; j <= 1000000; j++)
         {
             randn = gsl_rng_uniform_int(tau, 64);
             randm = gsl_rng_uniform_int(tau, 64);
