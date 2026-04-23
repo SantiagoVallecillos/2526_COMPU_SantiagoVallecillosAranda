@@ -22,7 +22,7 @@ int main()
 
     //Inicializamos variables
     int i, j, k, n, m, sord[N][N], sdesord[N][N], sN[64][64], randn, randm;
-    double dseta, P_S, T[2], E_S, p, random_val, deltaE;
+    double dseta, P_S, T[2], T_m[10], E_S, p, random_val, deltaE, mN16, mN32, mN64;
 
     FILE *ford1;
     ford1 = fopen("ising_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
@@ -35,6 +35,15 @@ int main()
 
     FILE *fdesord2;
     fdesord2 = fopen("ising_desord2_data.dat", "w");    //Fichero para los espines de organización desordenada con T alta
+
+    FILE *mag16;
+    mag16 = fopen("magn16.txt", "w"); //Fichero para la magnetización con N = 16
+
+    FILE *mag32;
+    mag32 = fopen("magn32.txt", "w"); //Fichero para la magnetización con N = 32
+
+    FILE *mag64;
+    mag64 = fopen("magn64.txt", "w"); //Fichero para la magnetización con N = 64
 
     T[0] = 1;
     T[1] = 3.5;
@@ -282,10 +291,96 @@ int main()
         }
     }
 
+    //Inicializamos las temperaturas
+    T_m[0] = 1.5;
+    T_m[1] = 1.7;
+    T_m[2] = 1.9;
+    T_m[3] = 2.1;
+    T_m[4] = 2.3;
+    T_m[5] = 2.5;
+    T_m[6] = 2.7;
+    T_m[7] = 2.9;
+    T_m[8] = 3.1;
+    T_m[9] = 3.3;
+
+    //Hacemos los cálculos de la magnetización
+    for(i = 0; i < 10; i++)
+    {
+        mN16 = 0;
+        mN32 = 0;
+        mN64 = 0;
+        //Generamos una configuración inicial de espines ordenada
+        for(n = 0; n < 64; n++)
+        {
+            for(m = 0; m < 64; m++)
+            {
+                sN[n][m] = 1;
+            }
+        }
+        //Hacemos el bucle para ver si cambia de espin
+        for(j = 0; j <= 1000000; j++)
+        {
+            randn = rand() % 64;
+            randm = rand() % 64;
+
+            // Aplicación del algoritmo de Metropolis para cálculo de magnetización
+            // Calcular el cambio de energía deltaE con condiciones de frontera periódicas
+            int up = (randn == 0) ? 63 : randn - 1;
+            int down = (randn == 63) ? 0 : randn + 1;
+            int left = (randm == 0) ? 63 : randm - 1;
+            int right = (randm == 63) ? 0 : randm + 1;
+            deltaE = 2 * (sN[randn][randm]) * (sN[down][randm] + sN[up][randm] + sN[randn][right] + sN[randn][left]);
+
+            // Calcular probabilidad de aceptación p = min(1, exp(-deltaE/T))
+            p = minimo(exp((-deltaE)/T_m[i]));
+
+            // Generar número aleatorio y decidir si aceptar el flip
+            dseta = (double)rand() / (RAND_MAX + 1.0);
+            if(dseta < p){sN[randn][randm] = -sN[randn][randm];}
+            else{continue;}
+        }
+
+        //Para N = 16
+        for(j = 0; j < 16; j++)
+        {
+            for(k = 0; k < 16; k++)
+            {
+                mN16 += sN[j][k];
+            }
+        }
+        mN16 = ((fabs(mN16))/(16*16))/(10000);
+        fprintf(mag16, "%lf\t%e\n", T_m[i], mN16);
+
+        //Para N = 32
+        for(j = 0; j < 32; j++)
+        {
+            for(k = 0; k < 32; k++)
+            {
+                mN32 += sN[j][k];
+            }
+        }
+        mN32 = ((fabs(mN32))/(32*32))/(10000);
+        fprintf(mag32, "%lf\t%e\n", T_m[i], mN32);
+
+        //Para N = 64
+        for(j = 0; j < 64; j++)
+        {
+            for(k = 0; k < 64; k++)
+            {
+                mN64 += sN[j][k];
+            }
+        }
+        mN64 = ((fabs(mN64))/(64*64))/(10000);
+        fprintf(mag64, "%lf\t%e\n", T_m[i], mN64);
+    }
+
     fclose(ford1);
     fclose(fdesord1);
     fclose(ford2);
     fclose(fdesord2);
+    fclose(mag16);
+    fclose(mag32);
+    fclose(mag64);
 
     return 0;
 }
