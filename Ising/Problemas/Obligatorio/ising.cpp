@@ -25,7 +25,7 @@ int main()
     double dseta, P_S, T[2], E_S, p, random_val, deltaE;
 
     FILE *ford1;
-    ford1 = fopen("ising_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
+    ford1 = fopen("ising_1_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
 
     FILE *ford2;
     ford2 = fopen("ising_2_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T alta
