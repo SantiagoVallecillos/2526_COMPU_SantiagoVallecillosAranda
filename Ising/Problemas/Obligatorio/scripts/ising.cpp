@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
-#define N 20            //Tamaño de las matrices
+#define N 1000            //Tamaño de las matrices
 double min(double x);
 
 //Creamos una función mínimo entre 1 y x
@@ -21,8 +21,8 @@ int main()
     srand(semilla);
 
     //Inicializamos variables
-    int i, j, k, n, m, sord[N][N], sdesord[N][N], sN[64][64], randn, randm;
-    double dseta, P_S, T[2], E_S, p, random_val, deltaE;
+    int i, n, m, sord[N][N], sdesord[N][N], randn, randm;
+    double dseta, T[2], p, random_val, deltaE;
 
     FILE *ford1;
     ford1 = fopen("ising_1_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
@@ -65,7 +65,7 @@ int main()
     fprintf(fdesord1, "\n\n");
 
     //Hacemos el bucle para ver si cambian de espin
-    for(i = 0; i <= 1000000; i++)
+    for(i = 0; i <= 10000000; i++)
     {
         randn = rand() % N;
         randm = rand() % N;
@@ -98,7 +98,6 @@ int main()
         // Generar número aleatorio y decidir si aceptar el flip
         dseta = (double)rand() / (RAND_MAX + 1.0);
         if(dseta < p){sord[randn][randm] = -sord[randn][randm];}
-        else{continue;}
 
         if(i%(N*N) == 0)
         {
@@ -143,7 +142,6 @@ int main()
         // Generar número aleatorio y decidir si aceptar el flip
         dseta = (double)rand() / (RAND_MAX + 1.0);
         if(dseta < p){sdesord[randn][randm] = -sdesord[randn][randm];}
-        else{continue;}
 
         if(i%(N*N) == 0)
         {
@@ -186,7 +184,7 @@ int main()
     fprintf(ford2, "\n");
     fprintf(fdesord2, "\n");
 
-    for(i = 0; i <= 1000000; i++)
+    for(i = 0; i <= 10000000; i++)
     {
         randn = rand() % N;
         randm = rand() % N;
@@ -218,7 +216,6 @@ int main()
         // Generar número aleatorio y decidir si aceptar el flip
         dseta = (double)rand() / (RAND_MAX + 1.0);
         if(dseta < p){sord[randn][randm] = -sord[randn][randm];}
-        else{continue;}
 
         if(i%(N*N) == 0)
         {
@@ -264,7 +261,6 @@ int main()
         // Generar número aleatorio y decidir si aceptar el flip
         dseta = (double)rand() / (RAND_MAX + 1.0);
         if(dseta < p){sdesord[randn][randm] = -sdesord[randn][randm];}
-        else{continue;}
 
         if(i%(N*N) == 0)
         {

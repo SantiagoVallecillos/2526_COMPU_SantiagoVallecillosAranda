@@ -45,7 +45,7 @@ import io
 
 # Parámetros
 # ========================================
-file_in = "ising_2_data.dat" # Nombre del fichero de datos
+file_in = "ising_desord1_data.dat" # Nombre del fichero de datos
 file_out = "ising" # Nombre del fichero de salida (sin extensión)
 interval = 100 # Tiempo entre fotogramas en milisegundos
 save_to_file = False # False: muestra la animación por pantalla,
@@ -66,6 +66,11 @@ frames_data = list()
 # Itera sobre los bloques de texto separados por líneas vacías
 # (cada bloque corresponde a un instante de tiempo)
 for frame_data_str in data_str.split("\n\n"):
+    
+    # Ignora los bloques vacíos (como saltos de línea extra al final del archivo)
+    if not frame_data_str.strip():
+        continue
+        
     # Almacena el bloque en una matriz
     # (io.StringIO permite leer una cadena de texto como si fuera un
     # fichero, lo que nos permite usar la función loadtxt de numpy)
