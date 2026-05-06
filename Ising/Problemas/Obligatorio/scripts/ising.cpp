@@ -1,281 +1,178 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
-#define N 1000            //Tamaño de las matrices
-double min(double x);
 
-//Creamos una función mínimo entre 1 y x
-double minimo(double x)
+#define N 25            // Tamaño de las matrices
+#define TOTAL_TRIALS 10000000
+
+static int sord[N][N];
+static int sdesord[N][N];
+
+// Devuelve un número aleatorio uniforme en [0, 1)
+double random_double()
 {
-    double min;
-    if(1 < x){min = 1;}
-    else if(x <= 1){min = x;}
+    return static_cast<double>(rand()) / (RAND_MAX + 1.0);
+}
 
-    return min;
+// Calcula el cambio de energía para el espín en la posición (n, m)
+int delta_energy(const int spins[N][N], int n, int m)
+{
+    int up = spins[(n + 1) % N][m];
+    int down = spins[(n - 1 + N) % N][m];
+    int right = spins[n][(m + 1) % N];
+    int left = spins[n][(m - 1 + N) % N];
+    return 2 * spins[n][m] * (up + down + right + left);
+}
+
+// Inicializa la configuración ordenada (todos los espines +1)
+void initialize_ordered(int spins[N][N])
+{
+    for (int n = 0; n < N; ++n)
+    {
+        for (int m = 0; m < N; ++m)
+        {
+            spins[n][m] = 1;
+        }
+    }
+}
+
+// Inicializa la configuración desordenada
+void initialize_disordered(int spins[N][N])
+{
+    for (int n = 0; n < N; ++n)
+    {
+        for (int m = 0; m < N; ++m)
+        {
+            spins[n][m] = (random_double() <= 0.5) ? 1 : -1;
+        }
+    }
+}
+
+// Escribe la matriz de espines en el fichero con formato CSV
+void write_lattice(FILE *file, const int spins[N][N])
+{
+    for (int n = 0; n < N; ++n)
+    {
+        for (int m = 0; m < N; ++m)
+        {
+            if (m < N - 1)
+                fprintf(file, "%i,", spins[n][m]);
+            else
+                fprintf(file, "%i", spins[n][m]);
+        }
+        fprintf(file, "\n");
+    }
+    fprintf(file, "\n");
+}
+
+// Realiza un paso de Monte Carlo completo (un "sweep" N*N de ensayos)
+void metropolis_sweep(int spins[N][N], double T)
+{
+    for (int trial = 0; trial < N * N; ++trial)
+    {
+        int n = rand() % N;
+        int m = rand() % N;
+        int dE = delta_energy(spins, n, m);
+        double p = std::min(1.0, exp(-dE / T));
+        if (random_double() < p)
+        {
+            spins[n][m] = -spins[n][m];
+        }
+    }
 }
 
 int main()
 {
-    //Inicializamos para generar números aleatorios
     int semilla = 310809;
     srand(semilla);
 
-    //Inicializamos variables
-    int i, n, m, sord[N][N], sdesord[N][N], randn, randm;
-    double dseta, T[2], p, random_val, deltaE;
+    double T_low = 1.0;
+    double T_high = 3.5;
 
-    FILE *ford1;
-    ford1 = fopen("ising_1_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T baja
+    FILE *ford1 = fopen("ising_1_data.dat", "w");
+    FILE *ford2 = fopen("ising_2_data.dat", "w");
+    FILE *fdesord1 = fopen("ising_desord1_data.dat", "w");
+    FILE *fdesord2 = fopen("ising_desord2_data.dat", "w");
 
-    FILE *ford2;
-    ford2 = fopen("ising_2_data.dat", "w");    //Fichero para los espines de organización ordenada 1 con T alta
-
-    FILE *fdesord1;
-    fdesord1 = fopen("ising_desord1_data.dat", "w");    //Fichero para los espines de organización desordenada con T baja
-
-    FILE *fdesord2;
-    fdesord2 = fopen("ising_desord2_data.dat", "w");    //Fichero para los espines de organización desordenada con T alta
-
-    T[0] = 1;
-    T[1] = 3.5;
-    
-    //Generamos unas configuraciónes iniciales de espines
-    for(n = 0; n < N; n++)
+    if (!ford1 || !ford2 || !fdesord1 || !fdesord2)
     {
-        for(m = 0; m < N ; m++)
-        {
-            sord[n][m] = 1;
-
-            random_val = (double)rand() / (RAND_MAX + 1.0);
-            if(random_val <= 0.5){sdesord[n][m] = 1;}
-            else if(random_val > 0.5){sdesord[n][m] = -1;} 
-        }
-        //Lo metemos todo en los ficheros 
-        for(m = 0; m < N; m++)
-        {
-            if(m < N-1) fprintf(ford1, "%i,", sord[n][m]);
-            else fprintf(ford1, "%i", sord[n][m]);
-            if(m < N-1) fprintf(fdesord1, "%i,", sdesord[n][m]);
-            else fprintf(fdesord1, "%i", sdesord[n][m]);
-        }
-        fprintf(ford1, "\n");
-        fprintf(fdesord1, "\n");
-    }
-    fprintf(ford1, "\n\n");
-    fprintf(fdesord1, "\n\n");
-
-    //Hacemos el bucle para ver si cambian de espin
-    for(i = 0; i <= 10000000; i++)
-    {
-        randn = rand() % N;
-        randm = rand() % N;
-        //printf("%i\t%i\n", randn, randm);
-
-        // Aplicación del algoritmo de Metropolis para configuración ordenada
-        // Calcular el cambio de energía deltaE
-        if(randn == 0)
-        {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][randm+1] + sord[randn][0]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
-        else if(randn == N-1)
-        {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
-        else
-        {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
-        //printf("%i\t%i\t%lf\n", randn, randm, deltaE);
-        // Calcular probabilidad de aceptación p = min(1, exp(-deltaE/T))
-        p = minimo(exp((-deltaE)/T[0]));
-
-        // Generar número aleatorio y decidir si aceptar el flip
-        dseta = (double)rand() / (RAND_MAX + 1.0);
-        if(dseta < p){sord[randn][randm] = -sord[randn][randm];}
-
-        if(i%(N*N) == 0)
-        {
-            //Lo volvemos a meter todo en el fichero
-            for(n = 0; n < N; n++)
-            { 
-                for(m = 0; m < N; m++)
-                {
-                    if(m < N-1) fprintf(ford1, "%i,", sord[n][m]);
-                    else fprintf(ford1, "%i", sord[n][m]);
-                }
-                fprintf(ford1, "\n");
-            }
-            fprintf(ford1, "\n");
-        }
-
-        //Para configuración desordenada
-        // Aplicación del algoritmo de Metropolis para configuración desordenada
-        // Calcular el cambio de energía deltaE
-        if(randn == 0)
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-        else if(randn == N-1)
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-        else
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-
-        // Calcular probabilidad de aceptación p = min(1, exp(-deltaE/T))
-        p = minimo(exp((-deltaE)/T[0]));
-
-        // Generar número aleatorio y decidir si aceptar el flip
-        dseta = (double)rand() / (RAND_MAX + 1.0);
-        if(dseta < p){sdesord[randn][randm] = -sdesord[randn][randm];}
-
-        if(i%(N*N) == 0)
-        {
-            //Lo volvemos a meter todo en el fichero
-            for(n = 0; n < N; n++)
-            { 
-                for(m = 0; m < N; m++)
-                {
-                    if(m < N-1) fprintf(fdesord1, "%i,", sdesord[n][m]);
-                    else fprintf(fdesord1, "%i", sdesord[n][m]);
-                }
-                fprintf(fdesord1, "\n");
-            }
-            fprintf(fdesord1, "\n");
-        }
+        std::cerr << "Error abriendo archivos de salida." << std::endl;
+        return 1;
     }
 
-    //Regeneramos unas configuraciónes iniciales de espines
-    for(n = 0; n < N; n++)
-    {
-        for(m = 0; m < N ; m++)
-        {
-            sord[n][m] = 1;
+    int mc_steps = TOTAL_TRIALS / (N * N);
+    int extra_trials = TOTAL_TRIALS % (N * N);
 
-            random_val = (double)rand() / (RAND_MAX + 1.0);
-            if(random_val <= 0.5){sdesord[n][m] = 1;}
-            else if(random_val > 0.5){sdesord[n][m] = -1;} 
-        }
-        //Lo metemos todo en los ficheros 
-        for(m = 0; m < N; m++)
-        {
-            if(m < N-1) fprintf(ford2, "%i,", sord[n][m]);
-            else fprintf(ford2, "%i", sord[n][m]);
-            if(m < N-1) fprintf(fdesord2, "%i,", sdesord[n][m]);
-            else fprintf(fdesord2, "%i", sdesord[n][m]);
-        }
-        fprintf(ford2, "\n");
-        fprintf(fdesord2, "\n");
+    // Primera fase: T baja
+    initialize_ordered(sord);
+    initialize_disordered(sdesord);
+    write_lattice(ford1, sord);
+    write_lattice(fdesord1, sdesord);
+
+    for (int step = 0; step < mc_steps; ++step)
+    {
+        metropolis_sweep(sord, T_low);
+        metropolis_sweep(sdesord, T_low);
+        write_lattice(ford1, sord);
+        write_lattice(fdesord1, sdesord);
     }
-    fprintf(ford2, "\n");
-    fprintf(fdesord2, "\n");
 
-    for(i = 0; i <= 10000000; i++)
+    if (extra_trials > 0)
     {
-        randn = rand() % N;
-        randm = rand() % N;
-
-        // Aplicación del algoritmo de Metropolis para configuración ordenada a T alta
-        // Calcular el cambio de energía deltaE
-        if(randn == 0)
+        for (int trial = 0; trial < extra_trials; ++trial)
         {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][randm+1] + sord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[N-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
-        else if(randn == N-1)
-        {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[0][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
-        else
-        {
-            if(randm == 0){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][0] + sord[randn][randm-1]);}
-            else{deltaE = 2*(sord[randn][randm])*(sord[randn+1][randm] + sord[randn-1][randm] + sord[randn][randm+1] + sord[randn][randm-1]);}
-        }
+            int n = rand() % N;
+            int m = rand() % N;
+            int dE = delta_energy(sord, n, m);
+            double p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p)
+                sord[n][m] = -sord[n][m];
 
-        // Calcular probabilidad de aceptación p = min(1, exp(-deltaE/T))
-        p = minimo(exp((-deltaE)/T[1]));
-
-        // Generar número aleatorio y decidir si aceptar el flip
-        dseta = (double)rand() / (RAND_MAX + 1.0);
-        if(dseta < p){sord[randn][randm] = -sord[randn][randm];}
-
-        if(i%(N*N) == 0)
-        {
-            //Lo volvemos a meter todo en el fichero
-            for(n = 0; n < N; n++)
-            { 
-                for(m = 0; m < N; m++)
-                {
-                    if(m < N-1) fprintf(ford2, "%i,", sord[n][m]);
-                    else fprintf(ford2, "%i", sord[n][m]);
-                }
-                fprintf(ford2, "\n");
-            }
-            fprintf(ford2, "\n");
+            n = rand() % N;
+            m = rand() % N;
+            dE = delta_energy(sdesord, n, m);
+            p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p)
+                sdesord[n][m] = -sdesord[n][m];
         }
+        write_lattice(ford1, sord);
+        write_lattice(fdesord1, sdesord);
+    }
 
-        //Para configuración desordenada
-        // Aplicación del algoritmo de Metropolis para configuración desordenada a T alta
-        // Calcular el cambio de energía deltaE
-        if(randn == 0)
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[N-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-        else if(randn == N-1)
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[0][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-        else
-        {
-            if(randm == 0){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][N-1]);}
-            else if(randm == N-1){deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][0] + sdesord[randn][randm-1]);}
-            else{deltaE = 2*(sdesord[randn][randm])*(sdesord[randn+1][randm] + sdesord[randn-1][randm] + sdesord[randn][randm+1] + sdesord[randn][randm-1]);}
-        }
-        
+    // Segunda fase: T alta
+    initialize_ordered(sord);
+    initialize_disordered(sdesord);
+    write_lattice(ford2, sord);
+    write_lattice(fdesord2, sdesord);
 
-        // Calcular probabilidad de aceptación p = min(1, exp(-deltaE/T))
-        p = minimo(exp((-deltaE)/T[1]));
+    for (int step = 0; step < mc_steps; ++step)
+    {
+        metropolis_sweep(sord, T_high);
+        metropolis_sweep(sdesord, T_high);
+        write_lattice(ford2, sord);
+        write_lattice(fdesord2, sdesord);
+    }
 
-        // Generar número aleatorio y decidir si aceptar el flip
-        dseta = (double)rand() / (RAND_MAX + 1.0);
-        if(dseta < p){sdesord[randn][randm] = -sdesord[randn][randm];}
-
-        if(i%(N*N) == 0)
+    if (extra_trials > 0)
+    {
+        for (int trial = 0; trial < extra_trials; ++trial)
         {
-            //Lo volvemos a meter todo en el fichero
-            for(n = 0; n < N; n++)
-            { 
-                for(m = 0; m < N; m++)
-                {
-                    if(m < N-1) fprintf(fdesord2, "%i,", sdesord[n][m]);
-                    else fprintf(fdesord2, "%i", sdesord[n][m]);
-                }
-                fprintf(fdesord2, "\n");
-            }
-            fprintf(fdesord2, "\n");
+            int n = rand() % N;
+            int m = rand() % N;
+            int dE = delta_energy(sord, n, m);
+            double p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p)
+                sord[n][m] = -sord[n][m];
+
+            n = rand() % N;
+            m = rand() % N;
+            dE = delta_energy(sdesord, n, m);
+            p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p)
+                sdesord[n][m] = -sdesord[n][m];
         }
+        write_lattice(ford2, sord);
+        write_lattice(fdesord2, sdesord);
     }
 
     fclose(ford1);
