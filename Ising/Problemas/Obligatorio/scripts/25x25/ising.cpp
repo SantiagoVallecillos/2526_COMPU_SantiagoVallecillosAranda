@@ -2,8 +2,8 @@
 #include <cmath>
 #include <cstdlib>
 
-#define N 1000            // Tamaño de las matrices
-#define TOTAL_TRIALS 100000000
+#define N 25            // Tamaño de las matrices
+#define TOTAL_TRIALS 1000000
 
 static int sord[N][N];
 static int sdesord[N][N];
