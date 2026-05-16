@@ -49,6 +49,8 @@ void initialize_disordered(int spins[N][N])
 }
 
 // Escribe la matriz de espines en el fichero con formato CSV
+
+//HAY QUE MODIFICAR ESTO PARA QUE FILTRE LOS PASOS Y SOLO AÑADA LOS QUE TIENEN CAMBIOS SIGNIFICATIVOS
 void write_lattice(FILE *file, const int spins[N][N])
 {
     for (int n = 0; n < N; ++n)
@@ -109,7 +111,7 @@ int main()
     write_lattice(ford1, sord);
     write_lattice(fdesord1, sdesord);
 
-    for (int step = 0; step < mc_steps; ++step)
+    for (int step = 0; step < mc_steps; ++step) //Posiblemente aquí haya que filtrar para ver si se escribe o no el paso.
     {
         metropolis_sweep(sord, T_low);
         metropolis_sweep(sdesord, T_low);
