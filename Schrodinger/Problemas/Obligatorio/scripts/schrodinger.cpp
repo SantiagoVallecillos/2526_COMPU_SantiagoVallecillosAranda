@@ -14,6 +14,7 @@ const complex<double> I(0.0, 1.0);
 vector<double> InicializarPotencial(int N, int lambda, double k0);
 vector<complex<double>> InicializarFuncionDeOnda(int N, double k0);
 vector<complex<double>> CalcularAlpha(int N, double s, vector<double> V);
+void EvolucionTemporal(int N, double s, vector<double> V, vector<complex<double>> phi, vector<complex<double>> alpha, ofstream &file_evolucion, ofstream &file_norma);
 
 
 // Función principal.
@@ -41,6 +42,10 @@ int main()
 
     alpha=CalcularAlpha(N, s, V); //Calculo el coeficiente alpha
 
+
+
+    file_norma.close();
+    file_evolucion.close();
     return 0;
 }
 
@@ -89,11 +94,45 @@ vector<complex<double>> CalcularAlpha(int N, double s, vector<double> V){
 
     for (int j = N - 1; j >= 1; j--) {
         // Calculamos A_j^0 para este punto específico 
-        std::complex<double> A0 = -2.0 + (2.0 * I / s) - V[j];
+        complex<double> A0 = -2.0 + (2.0 * I / s) - V[j];
     
         // Calculamos alpha_{j-1}
         alpha[j - 1] = -1.0 / (A0 + alpha[j]);
     }
 
+    
     return alpha;
+}
+
+void EvolucionTemporal(int N, int nciclos, double s, vector<double> V, vector<complex<double>> phi, vector<complex<double>> alpha, ofstream &file_evolucion, ofstream &file_norma){
+    vector<complex<double>> beta(N+1);
+    vector<complex<double>> chi(N+1);
+    vector<complex<double>> b(N+1, 0.0);
+    beta[N]=0.0;
+    for(int n=1; n<=nciclos; n++){
+        for(int j=N-1; j>=0; j--){
+            // Calculamos b_j para este tiempo específico 
+            b[j+1] = 4.0 * I * phi[j+1] / s;
+            //Como A⁺_j = A⁻_j =1 para todo j, gamm[j+1]=alpha[j]
+            beta[j] = alpha[j] * (b[j+1] - beta[j + 1]);
+        }
+
+        chi[0]=0.0;
+        for(int j=1; j<=N; j++){
+            chi[j]=alpha[j-1] * chi[j-1] + beta[j-1]; //Calculo la chi
+            phi[j]=chi[j]-phi[j]; //Actualizamos la función de onda para el siguiente paso temporal
+        }
+
+        double normaphi=0.0;
+        //Calculo el modulo de phi al cuadrado
+        for(int j=0; j<=N; j++){
+            normaphi+=norm(phi[j]);
+        }
+
+        
+        
+    }
+
+
+    return;
 }
