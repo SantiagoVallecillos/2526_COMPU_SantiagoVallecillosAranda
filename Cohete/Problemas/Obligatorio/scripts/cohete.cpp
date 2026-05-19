@@ -54,11 +54,15 @@ int main() {
     int N = 1; 
 
     // Guardamos las condiciones iniciales en el archivo
-    // Formato: t | x_nave | y_nave | x_luna | y_luna | H_prima | h
-    archivo << t << "\t" 
-            << y[0] * dTL * cos(y[1]) << "\t" << y[0] * dTL * sin(y[1]) << "\t"
-            << dTL * cos(omega * t) << "\t" << dTL * sin(omega * t) << "\t"
-            << calcular_H_prima(t, y) << "\t" << h << "\n";
+    // Formato requerido por animacion_planetas.py: x_nave,y_nave \n x_luna,y_luna \n\n
+    // No deshacemos el reescalado en busca de una mejor simulación visual.
+    double x_nave = y[0] * cos(y[1]);
+    double y_nave = y[0] * sin(y[1]);
+    double x_luna = cos(omega * t);
+    double y_luna = sin(omega * t);
+
+    archivo << x_nave << "," << y_nave << "\n"
+            << x_luna << "," << y_luna << "\n\n";
 
     // 3. Bucle principal de la simulación con control de paso adaptativo
     bool continuar = true;
@@ -73,10 +77,13 @@ int main() {
         double r_prime = sqrt(r_tilde * r_tilde + 1.0 - 2.0 * r_tilde * cos(phi - omega * t));
 
         // Guardamos los datos de la iteración actual en el archivo
-        archivo << t << "\t" 
-                << r_tilde * dTL * cos(phi) << "\t" << r_tilde * dTL * sin(phi) << "\t" 
-                << dTL * cos(omega * t) << "\t" << dTL * sin(omega * t) << "\t" 
-                << calcular_H_prima(t, y) << "\t" << h << "\n";
+        double x_nave = r_tilde * cos(phi);
+        double y_nave = r_tilde * sin(phi);
+        double x_luna = cos(omega * t);
+        double y_luna = sin(omega * t);
+
+        archivo << x_nave << "," << y_nave << "\n"
+                << x_luna << "," << y_luna << "\n\n";
 
         // Condición de parada A: Colisión o reentrada en la Tierra 
         // Se añade (t > 100.0) para evitar que el programa termine en el instante inicial t=0
