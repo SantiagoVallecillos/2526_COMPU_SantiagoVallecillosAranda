@@ -45,8 +45,22 @@ import io
 
 # Parámetros
 # ========================================
-file_in = "schrodinger_data.dat" # Nombre del fichero de datos
-file_out = "schrodinger" # Nombre del fichero de salida (sin extensión)
+#file_in = "datos_N700_L0.7.dat" # Nombre del fichero de datos
+#file_out = "simulacion_N700_L0.7" # Nombre del fichero
+
+#file_in = "datos_N1000_L0.2.dat" # Nombre del fichero de datos
+#file_out = "simulacion_N1000_L0.2" # Nombre del fichero de salida 
+
+#file_in = "datos_N1000_L1.0.dat" # Nombre del fichero de datos
+#file_out = "simulacion_N1000_L1.0" # Nombre del fichero de salida
+
+#file_in = "datos_N1000_L15.dat" # Nombre del fichero de datos
+#file_out = "simulacion_N1000_L15" # Nombre del fichero de salida
+
+file_in = "datos_N3000_L0.7.dat" # Nombre del fichero de datos
+file_out = "simulacion_N3000_L0.7" # Nombre del fichero de salida
+
+
 interval = 100 # Tiempo entre fotogramas en milisegundos
 save_to_file = True # False: muestra la animación por pantalla,
                      # True: la guarda en un fichero

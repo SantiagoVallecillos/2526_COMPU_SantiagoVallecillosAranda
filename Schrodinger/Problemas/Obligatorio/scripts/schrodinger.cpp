@@ -24,7 +24,7 @@ void simular_caso(int N, double lambda, string nombre_datos, string nombre_norma
 int main()
 {
     //Estudio de N (Resolución)
-    simular_caso(700, 0.7, "datos_N700_L0.7.dat", "norma_N700_L0.7.dat");
+    simular_caso(700, 0.5, "datos_N700_L0.5.dat", "norma_N700_L0.5.dat");
     simular_caso(3000, 0.7, "datos_N3000_L0.7.dat", "norma_N3000_L0.7.dat");
 
     //Estudio de Lambda (Efecto túnel y reflexión)
@@ -88,7 +88,7 @@ void simular_caso(int N, double lambda, string nombre_datos, string nombre_norma
 
     //Variables derivadas (cálculos previos)
     double k0_tilde = 2.0*PI*n_ciclos/N;
-    double s_tilde = 1/(4*k0_tilde*k0_tilde);   //Este es el valor que dan los apuntes. Alberto tiene 0.5. Si explota el programa, lo cambio a lo que tiene Alberto.
+    double s_tilde = 0.5;   //Este es el valor que dan los apuntes. Alberto tiene 0.5. Si explota el programa, lo cambio a lo que tiene Alberto.
 
     dcomplex i_unidad(0.0, 1.0);
 
@@ -157,11 +157,14 @@ void simular_caso(int N, double lambda, string nombre_datos, string nombre_norma
                 file_data << j << ", " << norm(phi[j]) << endl;
             }
 
-            file_data << endl << endl; //Salto de línea para indicar nuevo frame.
+            // Añade separador de bloques solo si no es el último bloque escrito.
+            if(n + n_D < pasos_tiempo){
+                file_data << endl << endl; // Salto de línea para indicar nuevo frame.
+            }
         }
-        file_data.close();
-        file_norma.close();
 
     }
 
+    file_data.close();
+    file_norma.close();
 }
