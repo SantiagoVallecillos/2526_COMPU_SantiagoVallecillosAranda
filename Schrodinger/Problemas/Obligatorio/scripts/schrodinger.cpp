@@ -4,135 +4,164 @@
 #include <vector>
 #include <complex>
 #include <fstream>
-
+#include <string>
+ 
 #define PI 3.14159265358979323846
 
 using namespace std;
 
 const complex<double> I(0.0, 1.0);
 
-vector<double> InicializarPotencial(int N, int lambda, double k0);
-vector<complex<double>> InicializarFuncionDeOnda(int N, double k0);
-vector<complex<double>> CalcularAlpha(int N, double s, vector<double> V);
-void EvolucionTemporal(int N, double s, vector<double> V, vector<complex<double>> phi, vector<complex<double>> alpha, ofstream &file_evolucion, ofstream &file_norma);
+typedef complex<double> dcomplex; //Alivio para la notación
+
+double norma(const vector<complex<double>>& v);
+vector<double> potencial(int N, double lambda, double k0);
+vector<complex<double>> calcular_phi0(int N, double k0);
+void simular_caso(int N, double lambda, string nombre_datos, string nombre_norma);
 
 
-// Función principal.
+
 int main()
 {
-    int N, nciclos, lambda; //Puntos de red, velocidad inicial y fuerza del potencial
-    double k0, s; 
+    //Estudio de N (Resolución)
+    simular_caso(700, 0.7, "datos_N700_L0.7.dat", "norma_N700_L0.7.dat");
+    simular_caso(3000, 0.7, "datos_N3000_L0.7.dat", "norma_N3000_L0.7.dat");
 
-    ofstream file_norma("norma.dat");
-    ofstream file_evolucion("evolucion.dat");
+    //Estudio de Lambda (Efecto túnel y reflexión)
+    simular_caso(1000, 0.2, "datos_N1000_L0.2.dat", "norma_N1000_L0.2.dat");
+    simular_caso(1000, 15.0, "datos_N1000_L15.dat", "norma_N1000_L15.dat");
 
-    //Inicializo los valores del momento angular reescalado y el paso de tiempo reescalado.
-    k0=2*PI*nciclos/N;
-    s=1/(4*k0*k0);
-
-    vector<double> V(N+1);
-
-    V=InicializarPotencial(N, lambda, k0); //Inicializo el potencial
-
-    vector<complex<double>> phi(N+1); //Vector de la función de onda
-
-    phi=InicializarFuncionDeOnda(N, k0); //Inicializo la función de onda
-
-    vector<complex<double>> alpha; //Coeficiente alpha
-
-    alpha=CalcularAlpha(N, s, V); //Calculo el coeficiente alpha
-
-
-
-    file_norma.close();
-    file_evolucion.close();
+    //Caso intermedio
+    simular_caso(1000, 1.0, "datos_N1000_L1.0.dat", "norma_N1000_L1.0.dat");
+    
     return 0;
 }
 
-//Funciones utilizadas en el programa
+//Código basado en el de mi compañero Alberto Jiménez, con algunas modificaciones de notación y optimizacion.
 
-vector<double> InicializarPotencial(int N, int lambda, double k0){
-    vector<double> V(N+1);
-    for(int i=0; i<=N; i++){
-        if(i>=2*N/5 && i<=3*N/5)
-            V[i]=lambda*k0*k0;
-        else
-            V[i]=0;
+//Función para calcular la norma de un vector de números complejos
+double norma(const vector<complex<double>>& v) {
+    double sum = 0.0;
+    for (const auto& elem : v) {
+        sum += norm(elem); // norm(elem) devuelve el módulo al cuadrado de elem
     }
-    return V;
+    return sqrt(sum);
 }
 
-vector<complex<double>> InicializarFuncionDeOnda(int N, double k0){
-    //Fuerzo las condiciones de contorno
-    vector<complex<double>> phi(N+1);
+//Función para calcular el potencial Vj
+vector<double> potencial(int N, double lambda, double k0){
+    //La barrera está definida entre 2N/5 y 3N/5. En el resto de puntos se anula
+    vector<double> Vj(N, 0.0);
     
-    phi[0]=0;
-    phi[N]=0;
-    
-    for(int j=1; j<N; j++){
-        //Calculamos la amplitud gaussiana
-        double termino_espacial = (4.0 * j - N) / (double)N; 
-        double amplitud_gaussiana = exp(-8.0 * termino_espacial * termino_espacial);
-
-        //Calculamos la fase compleja
-        complex<double> fase_compleja = exp(I * k0 * (double)j);
-
-        //Asignamos el valor de la función de onda en el punto j
-        phi[j] = amplitud_gaussiana * fase_compleja;
+    for(int i=0; i<N; i++){
+        if(i>=2*N/5 && i<=3*N/5){
+            Vj[i]=lambda;
+        } else {
+            Vj[i]=0.0;
+        }
     }
-    
-    return phi;
-}   
-
-vector<complex<double>> CalcularAlpha(int N, double s, vector<double> V){
-    //Creamos el vector alpha y lo inicializamos con ceros
-    vector<complex<double>> alpha(N+1, 0.0);
-    //Creo la constante de la diagonal de A
-    complex<double> A0;
-
-    //Inicializo un bucle hacia atrás
-
-    for (int j = N - 1; j >= 1; j--) {
-        // Calculamos A_j^0 para este punto específico 
-        complex<double> A0 = -2.0 + (2.0 * I / s) - V[j];
-    
-        // Calculamos alpha_{j-1}
-        alpha[j - 1] = -1.0 / (A0 + alpha[j]);
-    }
-
-    
-    return alpha;
+    return Vj;
 }
 
-void EvolucionTemporal(int N, int nciclos, double s, vector<double> V, vector<complex<double>> phi, vector<complex<double>> alpha, ofstream &file_evolucion, ofstream &file_norma){
-    vector<complex<double>> beta(N+1);
-    vector<complex<double>> chi(N+1);
-    vector<complex<double>> b(N+1, 0.0);
-    beta[N]=0.0;
-    for(int n=1; n<=nciclos; n++){
-        for(int j=N-1; j>=0; j--){
-            // Calculamos b_j para este tiempo específico 
-            b[j+1] = 4.0 * I * phi[j+1] / s;
-            //Como A⁺_j = A⁻_j =1 para todo j, gamm[j+1]=alpha[j]
-            beta[j] = alpha[j] * (b[j+1] - beta[j + 1]);
+//Función para inicializar la función de onda
+vector<complex<double>> calcular_phi0(int N, double k0){
+    vector<complex<double>> phi0(N);
+    
+    for(int j=0; j<N; j++){
+        double exponente = -8.0 * (4.0*j-N)*(4.0*j-N) / (N*N);
+        complex<double> fase(0,k0*j);
+        phi0[j] = exp(exponente) * exp(fase);
+    }
+    return phi0;
+}
+
+//Función que realiza la simulación para los casos indicados.
+void simular_caso(int N, double lambda, string nombre_datos, string nombre_norma){
+    cout << "Simulando caso N=" << N << ", lambda=" << lambda << "..." << endl;
+
+    //Parámetros de la simulación. Se pueden modificar para experimentar con diferentes condiciones iniciales y potenciales.
+    const int n_ciclos = N/8; //Define cuán rápido se mueve al inicio la función de onda. N/8 nos debe dar una velocidad razonable.
+
+    //El valor lambda representa la altura de la barrera de potencial y afecta a la facilidad de atravesarla.
+    const int pasos_tiempo = 2000;  //Número total de pasos de tiempo a simular.
+    const int n_D = 10;             //Guardamos datos cada n_D pasos para no saturar el archivo de salida.
+
+    //Variables derivadas (cálculos previos)
+    double k0_tilde = 2.0*PI*n_ciclos/N;
+    double s_tilde = 1/(4*k0_tilde*k0_tilde);   //Este es el valor que dan los apuntes. Alberto tiene 0.5. Si explota el programa, lo cambio a lo que tiene Alberto.
+
+    dcomplex i_unidad(0.0, 1.0);
+
+    //Vectores que utilizaremos
+
+    vector<dcomplex> phi(N); //Función de onda inicial
+    vector<double> V(N+1); //Potencial Vj
+
+    //Los siguientes vectores se utilizan en el método de Crank_Nicolson. Alpha y gamma se calculan hacia atrás
+    //y beta es e coeficiente dinámico que se actualiza en cada paso de tiempo.
+
+    vector<dcomplex> alpha(N);  //Coeficientes alpha estáticos
+    vector<dcomplex> beta(N);   //Coeficientes beta dinámicos
+    vector<dcomplex> gamma(N+1);//Coeficientes gamma auxiliares
+    vector<dcomplex> chi(N+1);  //Vector chi intermedio para el paso temporal.
+
+    //Archivos de salida
+    ofstream file_data(nombre_datos); //Módulo de función de onda: x, probabilidad. Cada n_D pasos de tiempo, salto de línea doble que es un nuevo frame temporal
+    ofstream file_norma(nombre_norma); //Norma total de la función de onda cada n_D pasos de tiempo. Debería ser constante.
+
+    //Inicialización de los vectores del potencial y la función de onda.
+    phi = calcular_phi0(N, k0_tilde);
+    V = potencial(N, lambda, k0_tilde);
+
+    //Normalización a 1
+    double norma_inicial = norma(phi);
+    for(int j=0; j<N; j++){
+        phi[j] /= norma_inicial;
+    }
+
+    //Cálculo de los coeficientes alpha y gamma estáticos. Se pueden precomputar porque no dependen del tiempo.
+    alpha[N-1] = 0.0; //Condición de frontera
+    for(int j=N-1;j>0;j--){
+        dcomplex A0=dcomplex(-2.0,0.0)+(2.0*i_unidad/s_tilde)-V[j];
+        gamma[j]=1.0/(A0+alpha[j]);
+        alpha[j-1]=-gamma[j];
+    }
+
+    //Bucle principal para la simulación temporal
+    for(int n=0; n<pasos_tiempo; n++){
+        //Cálculo de los coeficientes beta hacia atrás
+        beta[N-1]=0.0; //Condición de frontera
+        for(int j=N-1; j>0; j--){
+            dcomplex b_j=(4.0*i_unidad/s_tilde)*phi[j];
+            beta[j-1]=gamma[j]*(b_j-beta[j]);
         }
 
-        chi[0]=0.0;
-        for(int j=1; j<=N; j++){
-            chi[j]=alpha[j-1] * chi[j-1] + beta[j-1]; //Calculo la chi
-            phi[j]=chi[j]-phi[j]; //Actualizamos la función de onda para el siguiente paso temporal
+        //Cálculo del vector chi hacia adelante
+        chi[0]=0.0; //Condición de frontera
+        chi[N]=0.0; //Condición de frontera
+        for(int j=0; j<N; j++){
+            chi[j+1]=alpha[j]*chi[j]+beta[j];
         }
 
-        double normaphi=0.0;
-        //Calculo el modulo de phi al cuadrado
+        //Actualización de la función de onda y cálculo de la norma
         for(int j=0; j<=N; j++){
-            normaphi+=norm(phi[j]);
+            phi[j]=chi[j]-phi[j];
         }
 
-        
-        
+        //Guardado de datos. Para la norma total se hace cada n_D pasos.
+        if(n%n_D==0){
+            double norma_actual = norma(phi);
+            file_norma << n << ", " << norma_actual << endl;
+
+            for(int j=0; j<=N; j++){
+                file_data << j << ", " << norm(phi[j]) << endl;
+            }
+
+            file_data << endl << endl; //Salto de línea para indicar nuevo frame.
+        }
+        file_data.close();
+        file_norma.close();
+
     }
 
-
-    return;
 }
