@@ -4,15 +4,20 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
+#include <random>
 
 using namespace std;
 
-constexpr size_t kNumPlanetas = 50;
+constexpr size_t kNumPlanetas = 500;
 constexpr size_t kNumCoordenadas = 2;
 constexpr double kG = 6.67430e-11;
-constexpr double kUnidadDistancia = 1e21; //Radio vía láctea 
+constexpr double kUnidadDistancia = 1e21; // Radio vía láctea
 constexpr double kUnidadMasa = 8.2e36;
-constexpr double kRadioColision = 4.5e9; //Radio planetario del Sistema Solar.
+constexpr double kRadioColision = 4.5e9; // Radio planetario del Sistema Solar.
+constexpr double kRadioRegeneracion = 0.3;
+constexpr double kRadioHorizonte = 0.1;
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kRadioColisionEscalada = kRadioColision / kUnidadDistancia;
 
 using Vector2D = array<double, kNumCoordenadas>;
 using PlanetArray = array<Vector2D, kNumPlanetas>;
@@ -23,18 +28,24 @@ using MassArray = array<double, kNumPlanetas>;
 void leer_datos(ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& masa);
 void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa);
 void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray& masa);
-void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa);
+bool esta_cerca_origen(const Vector2D& posicion);
+void generar_en_orbita(Vector2D& x, Vector2D& v, std::mt19937_64& rng);
+void regenerar_si_cerca_origen(PlanetArray& x, PlanetArray& v, std::mt19937_64& rng);
+void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_curr, const PlanetArray& a_curr, PlanetArray& x_next, PlanetArray& v_next, PlanetArray& a_next, const MassArray& masa, double h);
+void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa, std::mt19937_64& rng);
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa);
+double energia_total(const PlanetArray& x, const PlanetArray& v, const MassArray& masa);
 void escribir_datos(ofstream& out, const Trajectory& x);
 void escribir_datos_energia(ofstream& out, const EnergyArray& data);
 void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& periodos);
-void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p);
+void invariantes(const Trajectory& x, const Trajectory& v, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p);
 void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPlanetas>& periodos);
 void convertir_periodo_a_dias(array<double, kNumPlanetas>& periodos);
 double choque_elastico(double v1, double v2, double m1, double m2);
 bool haycolision(const PlanetArray& posiciones, size_t i, size_t k);
+
 int main() {
-    auto inicio = std::chrono::high_resolution_clock::now();
+    auto inicio = chrono::high_resolution_clock::now();
 
     ifstream data("condiciones_iniciales.txt");
     if (!data) {
@@ -84,9 +95,9 @@ int main() {
         return 1;
     }
 
-    constexpr int N = 5000;
+    constexpr int N_final = 10000;
     double t = 0.0;
-    double h = 6.3e7; //Aproximadamente dos años en segundos
+    double h = 3.156e13; // 1 millón de años en segundos
 
     PlanetArray x0{};
     PlanetArray v0{};
@@ -95,27 +106,56 @@ int main() {
     leer_datos(data, x0, v0, masa);
     reescalar(h, x0, v0, masa);
 
-    vector<double> tiempo(N);
-    for (int i = 0; i < N; ++i) {
-        tiempo[i] = i * h;
+    std::mt19937_64 rng(static_cast<unsigned long>(chrono::high_resolution_clock::now().time_since_epoch().count()));
+
+    PlanetArray x_curr = x0;
+    PlanetArray v_curr = v0;
+    regenerar_si_cerca_origen(x_curr, v_curr, rng);
+    PlanetArray a_curr = calcular_aceleraciones(x_curr, masa);
+    PlanetArray x_next{};
+    PlanetArray v_next{};
+    PlanetArray a_next{};
+
+    double energia_anterior = energia_total(x_curr, v_curr, masa);
+    constexpr double kEnergiaUmbral = 1e-5;
+    constexpr int kPasosEstablesRequeridos = 10;
+    int pasos_estables = 0;
+    int iteracion = 0;
+    while (pasos_estables < kPasosEstablesRequeridos) {
+        regenerar_si_cerca_origen(x_curr, v_curr, rng);
+        calcular_siguiente_paso(x_curr, v_curr, a_curr, x_next, v_next, a_next, masa, h);
+
+        double energia_actual = energia_total(x_next, v_next, masa);
+        if (fabs(energia_actual - energia_anterior) <= kEnergiaUmbral) {
+            pasos_estables++;
+        } else {
+            pasos_estables = 0;
+        }
+
+        energia_anterior = energia_actual;
+        x_curr = x_next;
+        v_curr = v_next;
+        a_curr = a_next;
+        t += h;
+        iteracion++;
     }
 
-    Trajectory x(N, PlanetArray{});
-    Trajectory v(N, PlanetArray{});
-    Trajectory a(N, PlanetArray{});
-    EnergyArray E(N);
-    Trajectory L(N, PlanetArray{});
-    Trajectory p(N, PlanetArray{});
-    EnergyArray mod_p(N);
+    Trajectory x(N_final, PlanetArray{});
+    Trajectory v(N_final, PlanetArray{});
+    Trajectory a(N_final, PlanetArray{});
+    EnergyArray E(N_final);
+    Trajectory L(N_final, PlanetArray{});
+    Trajectory p(N_final, PlanetArray{});
+    EnergyArray mod_p(N_final);
     array<double, kNumPlanetas> periodo{};
 
-    Verlet(t, h, N, x0, v0, x, v, a, masa);
+    Verlet(t, h, N_final, x_curr, v_curr, x, v, a, masa, rng);
     escribir_datos(trayectorias, x);
     escribir_datos(velocidades, v);
     escribir_datos(aceleraciones, a);
 
     deshacer_reescalado(x, v, a, masa);
-    invariantes(x, v, a, masa, E, L, p, mod_p);
+    invariantes(x, v, masa, E, L, p, mod_p);
     periodos(E, masa, periodo);
     convertir_periodo_a_dias(periodo);
 
@@ -127,6 +167,7 @@ int main() {
     auto fin = chrono::high_resolution_clock::now();
     chrono::duration<double, milli> tiempo_ejecucion = fin - inicio;
     cout << "El código tardó: " << tiempo_ejecucion.count() << " milisegundos." << endl;
+    cout << "Iteraciones hasta estabilidad: " << iteracion << endl;
 
     return 0;
 }
@@ -182,38 +223,94 @@ void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray&
     }
 }
 
+bool esta_cerca_origen(const Vector2D& posicion) {
+    return posicion[0] * posicion[0] + posicion[1] * posicion[1] < kRadioRegeneracion * kRadioRegeneracion;
+}
+
+void generar_en_orbita(Vector2D& x, Vector2D& v, std::mt19937_64& rng) {
+    std::uniform_real_distribution<double> dist_radio(kRadioHorizonte, 1.0);
+    std::uniform_real_distribution<double> dist_angulo(0.0, 2.0 * kPi);
+
+    const double radio = dist_radio(rng);
+    const double theta = dist_angulo(rng);
+    x[0] = radio * cos(theta);
+    x[1] = radio * sin(theta);
+
+    const double velocidad_orbital = sqrt(1.0 / radio);
+    v[0] = -velocidad_orbital * sin(theta);
+    v[1] = velocidad_orbital * cos(theta);
+}
+
+void regenerar_si_cerca_origen(PlanetArray& x, PlanetArray& v, std::mt19937_64& rng) {
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        if (esta_cerca_origen(x[i])) {
+            generar_en_orbita(x[i], v[i], rng);
+        }
+    }
+}
+
+void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_curr, const PlanetArray& a_curr, PlanetArray& x_next, PlanetArray& v_next, PlanetArray& a_next, const MassArray& masa, double h) {
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        for (size_t j = 0; j < kNumCoordenadas; ++j) {
+            x_next[i][j] = x_curr[i][j] + v_curr[i][j] * h + 0.5 * a_curr[i][j] * h * h;
+        }
+    }
+
+    a_next = calcular_aceleraciones(x_next, masa);
+
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        for (size_t j = 0; j < kNumCoordenadas; ++j) {
+            v_next[i][j] = v_curr[i][j] + 0.5 * (a_curr[i][j] + a_next[i][j]) * h;
+        }
+    }
+
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        for (size_t k = i + 1; k < kNumPlanetas; ++k) {
+            if (haycolision(x_next, i, k)) {
+                double v1_final_x = choque_elastico(v_curr[i][0], v_curr[k][0], masa[i], masa[k]);
+                double v1_final_y = choque_elastico(v_curr[i][1], v_curr[k][1], masa[i], masa[k]);
+                double v2_final_x = choque_elastico(v_curr[k][0], v_curr[i][0], masa[k], masa[i]);
+                double v2_final_y = choque_elastico(v_curr[k][1], v_curr[i][1], masa[k], masa[i]);
+
+                v_next[i][0] = v1_final_x;
+                v_next[i][1] = v1_final_y;
+                v_next[k][0] = v2_final_x;
+                v_next[k][1] = v2_final_y;
+            }
+        }
+    }
+}
+
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa) {
     PlanetArray aceleraciones{};
-    
-    vector<double> distanciasx(kNumPlanetas);
-    vector<double> distanciasy(kNumPlanetas);
 
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         aceleraciones[i] = {0.0, 0.0};
-        
-        // Contribución del sol (ubicado en el origen)
+
         const double dx_sol = posiciones[i][0];
         const double dy_sol = posiciones[i][1];
-        const double dist_sol_cubica = pow(dx_sol * dx_sol + dy_sol * dy_sol, 1.5);
-        
-        aceleraciones[i][0] += -kUnidadMasa * dx_sol / dist_sol_cubica;
-        aceleraciones[i][1] += -kUnidadMasa * dy_sol / dist_sol_cubica;
-        
-        // Contribución de los otros planetas
+        const double dist_sol2 = dx_sol * dx_sol + dy_sol * dy_sol;
+        const double dist_sol_cubica = pow(dist_sol2, 1.5);
+
+        if (dist_sol_cubica > 0.0) {
+            aceleraciones[i][0] += -dx_sol / dist_sol_cubica;
+            aceleraciones[i][1] += -dy_sol / dist_sol_cubica;
+        }
+
         for (size_t k = 0; k < kNumPlanetas; ++k) {
-            distanciasx[k]= posiciones[i][0] - posiciones[k][0];
-            distanciasy[k]= posiciones[i][1] - posiciones[k][1];            
             if (k == i) {
                 continue;
             }
-            else if (sqrt(distanciasx[k] * distanciasx[k] + distanciasy[k] * distanciasy[k]) > 200) {
-                continue; // Ignoramos la contribución de sistemas solares lejanos.
-            }         
 
             const double dx = posiciones[i][0] - posiciones[k][0];
             const double dy = posiciones[i][1] - posiciones[k][1];
-            const double distanciaCubica = pow(dx * dx + dy * dy, 1.5);
+            const double dist2 = dx * dx + dy * dy;
 
+            if (dist2 <= 0.0) {
+                continue;
+            }
+
+            const double distanciaCubica = pow(dist2, 1.5);
             aceleraciones[i][0] += -masa[k] * dx / distanciaCubica;
             aceleraciones[i][1] += -masa[k] * dy / distanciaCubica;
         }
@@ -222,45 +319,32 @@ PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArra
     return aceleraciones;
 }
 
-void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa) {
+void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray& v0, Trajectory& x, Trajectory& v, Trajectory& a, const MassArray& masa, std::mt19937_64& rng) {
+    PlanetArray x_curr = x0;
+    PlanetArray v_curr = v0;
+    regenerar_si_cerca_origen(x_curr, v_curr, rng);
+    PlanetArray a_curr = calcular_aceleraciones(x_curr, masa);
+    PlanetArray x_next{};
+    PlanetArray v_next{};
+    PlanetArray a_next{};
+
     t = 0.0;
-    x[0] = x0;
-    v[0] = v0;
-    a[0] = calcular_aceleraciones(x[0], masa);
+    if (N > 0) {
+        x[0] = x_curr;
+        v[0] = v_curr;
+        a[0] = a_curr;
+    }
 
     for (int n = 0; n + 1 < N; ++n) {
-        for (size_t i = 0; i < kNumPlanetas; ++i) {
-            for (size_t j = 0; j < kNumCoordenadas; ++j) {
-                x[n + 1][i][j] = x[n][i][j] + v[n][i][j] * h + 0.5 * a[n][i][j] * h * h;
-            }
-        }
+        calcular_siguiente_paso(x_curr, v_curr, a_curr, x_next, v_next, a_next, masa, h);
 
-        a[n + 1] = calcular_aceleraciones(x[n + 1], masa);
+        x[n + 1] = x_next;
+        v[n + 1] = v_next;
+        a[n + 1] = a_next;
 
-        //MODIFICAR AQUÍ EL CÁLCULO DE LA VELOCIDAD EN FUNCIÓN DE SI HAY UN CHOQUE O NO.
-        //EN CASO DE CHOQUE USAMOS LA FÓRMULA DE LA COLISIÓN ELÁSTICA PARA CALCULAR LA VELOCIDAD POSTERIOR AL CHOQUE.
-        for (size_t i = 0; i < kNumPlanetas; ++i) {
-            for (size_t k = i + 1; k < kNumPlanetas; ++k) {
-                if (haycolision(x[n + 1], i, k)) {
-                    // Calculamos las velocidades finales usando la fórmula de choque elástico
-                    double v1_final_x = choque_elastico(v[n][i][0], v[n][k][0], masa[i], masa[k]);
-                    double v1_final_y = choque_elastico(v[n][i][1], v[n][k][1], masa[i], masa[k]);
-                    double v2_final_x = choque_elastico(v[n][k][0], v[n][i][0], masa[k], masa[i]);
-                    double v2_final_y = choque_elastico(v[n][k][1], v[n][i][1], masa[k], masa[i]);
-    
-                    // Actualizamos las velocidades después del choque
-                    v[n + 1][i][0] = v1_final_x;
-                    v[n + 1][i][1] = v1_final_y;
-                    v[n + 1][k][0] = v2_final_x;
-                    v[n + 1][k][1] = v2_final_y;
-                }
-                else{             
-                    for (size_t j = 0; j < kNumCoordenadas; ++j) {
-                    v[n + 1][i][j] = v[n][i][j] + 0.5 * (a[n][i][j] + a[n + 1][i][j]) * h;}
-                }
-            }
-        }
-
+        x_curr = x_next;
+        v_curr = v_next;
+        a_curr = a_next;
         t += h;
     }
 }
@@ -289,11 +373,10 @@ void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& pe
     }
 }
 
-void invariantes(const Trajectory& x, const Trajectory& v, const Trajectory& a, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p) {
+void invariantes(const Trajectory& x, const Trajectory& v, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p) {
     for (size_t n = 0; n < x.size(); ++n) {
         for (size_t i = 0; i < kNumPlanetas; ++i) {
             const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
-            // ✅ Inicializamos la energía potencial con la del Sol
             double masa_sol = 2e30; // Masa del sol
             double dist_sol = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
             double energia_potencial = -kG * masa_sol * masa[i] / dist_sol;
@@ -330,8 +413,12 @@ void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPla
 
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         energia_media[i] /= static_cast<double>(E.size());
+        if (energia_media[i] >= 0.0) {
+            periodos[i] = 0.0;
+            continue;
+        }
         const double semieje_mayor = -kG * kUnidadMasa * masa[i] / (2.0 * energia_media[i]);
-        periodos[i] = 2.0 * M_PI * pow(semieje_mayor, 1.5) / sqrt(kG * kUnidadMasa);
+        periodos[i] = 2.0 * kPi * pow(semieje_mayor, 1.5) / sqrt(kG * kUnidadMasa);
     }
 }
 
@@ -342,14 +429,37 @@ void convertir_periodo_a_dias(array<double, kNumPlanetas>& periodos) {
     }
 }
 
+double energia_total(const PlanetArray& x, const PlanetArray& v, const MassArray& masa) {
+    double energia = 0.0;
+
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        energia += 0.5 * masa[i] * (v[i][0] * v[i][0] + v[i][1] * v[i][1]);
+        double dist_sol = sqrt(x[i][0] * x[i][0] + x[i][1] * x[i][1]);
+        if (dist_sol > 0.0) {
+            energia += -masa[i] / dist_sol;
+        }
+
+        for (size_t k = i + 1; k < kNumPlanetas; ++k) {
+            double dx = x[i][0] - x[k][0];
+            double dy = x[i][1] - x[k][1];
+            double distancia = sqrt(dx * dx + dy * dy);
+            if (distancia > 0.0) {
+                energia += -masa[i] * masa[k] / distancia;
+            }
+        }
+    }
+
+    return energia;
+}
+
 double choque_elastico(double v1, double v2, double m1, double m2){
     double v1_final = (v1 * (m1 - m2) + 2 * m2 * v2) / (m1 + m2);
-    return v1_final; // Retornamos la velocidad final del primer planeta
+    return v1_final;
 }
 
 bool haycolision(const PlanetArray& posiciones, size_t i, size_t k) {
     double dx = posiciones[i][0] - posiciones[k][0];
     double dy = posiciones[i][1] - posiciones[k][1];
     double distancia = sqrt(dx * dx + dy * dy);
-    return distancia < kRadioColision;
+    return distancia < kRadioColisionEscalada;
 }

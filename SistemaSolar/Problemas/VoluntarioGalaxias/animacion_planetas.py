@@ -45,18 +45,26 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Circle
 import numpy as np
 
+try:
+    import cupy as cp
+    gpu_available = True
+except ImportError:
+    cp = None
+    gpu_available = False
+
 # Parámetros
 # ========================================
 file_in = "posiciones_planetas.dat" # Nombre del fichero de datos
 file_out = "planetas" # Nombre del fichero de salida (sin extensión)
+use_gpu = True  # Si hay GPU/CuPy disponible, úsala para procesar los datos
 
 # Límites de los ejes X e Y
-x_min = -50e18
-x_max = 50e18
-y_min = -50e18 
-y_max = 50e18
+x_min = -1
+x_max = 1
+y_min = -1 
+y_max = 1
 
-interval = 60 # Tiempo entre fotogramas en milisegundos
+interval = 10 # Tiempo entre fotogramas en milisegundos
 show_trail = True # Muestra la "estela" del planeta
 trail_width = 1 # Ancho de la estela
 save_to_file = True # False: muestra la animación por pantalla,
@@ -66,7 +74,7 @@ dpi = 150 # Calidad del vídeo de salida (dots per inch)
 # Radio del planeta, en las mismas unidades que la posición
 # Puede ser un número (el radio de todos los planetas) o una lista con
 # el radio de cada uno
-planet_radius = 1 
+planet_radius = 0.01 
 #planet_radius = [0.1, 0.1, 0.2, 0.2, 1.5, 1.3, 1, 1, 0.1]
 
 # Colores de cada planeta. Si solo se especifica un color, se usa el mismo
@@ -81,6 +89,23 @@ planet_colors = ["tab:blue", "tab:orange", "tab:green", "tab:red",
 with open(file_in, "r") as f:
     data_str = f.read()
 
+# Selecciona el backend de arrays: CuPy si hay GPU y está habilitado, NumPy en caso contrario
+xp = cp if gpu_available and use_gpu else np
+if gpu_available and use_gpu:
+    print("GPU disponible: usando CuPy para el preprocesado de datos.")
+else:
+    if use_gpu:
+        print("GPU no disponible o CuPy no instalado: usando NumPy.")
+    xp = np
+
+# Helper para llevar datos a CPU antes de dibujar con Matplotlib
+if gpu_available and use_gpu:
+    def to_cpu(array):
+        return xp.asnumpy(array)
+else:
+    def to_cpu(array):
+        return array
+
 # Inicializa la lista con los datos de cada fotograma.
 # frames_data[j] contiene los datos del fotograma j-ésimo
 frames_data = list()
@@ -92,21 +117,21 @@ for frame_data_str in data_str.split("\n\n"):
     frame_data = list()
 
     # Itera sobre las líneas del bloque
-    # (cada línea da la posición de un planta)
+    # (cada línea da la posición de un planeta)
     for planet_pos_str in frame_data_str.split("\n"):
         # Lee la componente x e y de la línea
-        planet_pos = np.fromstring(planet_pos_str, sep=",")
+        planet_pos = xp.fromstring(planet_pos_str, sep=",")
         # Si la línea no está vacía, añade planet_pos a la lista de 
         # posiciones del fotograma
         if planet_pos.size > 0:
-            frame_data.append(np.fromstring(planet_pos_str, sep=","))
+            frame_data.append(planet_pos)
 
     # Añade los datos de este fotograma a la lista
-    frames_data.append(frame_data)
+    if frame_data:
+        frames_data.append(xp.vstack(frame_data))
 
-# El número de planetas es el número de líneas en cada bloque
-# Lo calculamos del primer bloque
-nplanets = len(frames_data[0])
+# El número de planetas es el número de filas en el primer bloque
+nplanets = int(frames_data[0].shape[0])
 
 
 # Creación de la animación/gráfico
@@ -146,7 +171,7 @@ elif len(planet_colors) < nplanets:
 planet_points = list()
 planet_trails = list()
 for planet_pos, radius, color in zip(frames_data[0], planet_radius, planet_colors):
-    x, y = planet_pos
+    x, y = to_cpu(planet_pos)
     planet_point = Circle((x, y), radius, facecolor=color, edgecolor="none")
     ax.add_artist(planet_point)
     planet_points.append(planet_point)
@@ -162,7 +187,7 @@ for planet_pos, radius, color in zip(frames_data[0], planet_radius, planet_color
 def update(j_frame, frames_data, planet_points, planet_trails, show_trail):
     # Actualiza la posición del correspondiente a cada planeta
     for j_planet, planet_pos in enumerate(frames_data[j_frame]):
-        x, y = planet_pos
+        x, y = to_cpu(planet_pos)
         planet_points[j_planet].center = (x, y)
 
         if show_trail:

@@ -7,7 +7,7 @@
 
 int main(int argc, char* argv[]) {
     // Defaults
-    int N = 50;
+    int N = 500;
     double baseMass = 1.989e30; // Masa base de los sistemas solares (masa del sistema solar)
     std::string outFile = "condiciones_iniciales.txt";
     double minR = 1.8e13;    
