@@ -5,6 +5,7 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <omp.h>
 
 using namespace std;
 
@@ -13,7 +14,7 @@ constexpr size_t kNumCoordenadas = 2;
 constexpr double kG = 6.67430e-11;
 constexpr double kUnidadDistancia = 1e21; // Radio vía láctea
 constexpr double kUnidadMasa = 8.2e36;
-constexpr double kRadioColision = 4.5e9; // Radio planetario del Sistema Solar.
+constexpr double kRadioColision = 4.5e9; // Radio planetary del Sistema Solar.
 constexpr double kRadioRegeneracion = 0.3;
 constexpr double kRadioHorizonte = 0.1;
 constexpr double kPi = 3.14159265358979323846;
@@ -43,9 +44,10 @@ void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPla
 void convertir_periodo_a_dias(array<double, kNumPlanetas>& periodos);
 double choque_elastico(double v1, double v2, double m1, double m2);
 bool haycolision(const PlanetArray& posiciones, size_t i, size_t k);
-void calcular_distribucion_radial(const Trajectory& x, const MassArray& masa, const string& nombre_archivo);
-void calcular_momento_inercia_medio(const Trajectory& x, const MassArray& masa, const string& nombre_archivo);
-void calcular_flujo_masa_absorbido(const Trajectory& x, const MassArray& masa, double h_reducido);
+
+void calcular_distribucion_radial(const Trajectory& x, const MassArray& masa, vector<double>& densidad_anillos);
+double calcular_momento_inercia_medio(const Trajectory& x, const MassArray& masa);
+double calcular_flujo_masa_absorbido(const Trajectory& x, const MassArray& masa, double h_reducido);
 
 int main() {
     auto inicio = chrono::high_resolution_clock::now();
@@ -105,7 +107,6 @@ int main() {
     }
 
     constexpr int N_final = 10000;
-    double t = 0.0;
     double h = 3.156e13; // 1 millón de años en segundos
 
     PlanetArray x0{};
@@ -117,75 +118,167 @@ int main() {
 
     std::mt19937_64 rng(static_cast<unsigned long>(chrono::high_resolution_clock::now().time_since_epoch().count()));
 
-    PlanetArray x_curr = x0;
-    PlanetArray v_curr = v0;
-    regenerar_si_cerca_origen(x_curr, v_curr, rng);
-    PlanetArray a_curr = calcular_aceleraciones(x_curr, masa);
-    PlanetArray x_next{};
-    PlanetArray v_next{};
-    PlanetArray a_next{};
+    constexpr size_t kNumRuns = 10;
+    constexpr size_t kNumAnillos = 100;
 
-    double energia_anterior = energia_total(x_curr, v_curr, masa);
-    constexpr double kEnergiaUmbral = 1e-5;
-    constexpr int kPasosEstablesRequeridos = 10;
-    int pasos_estables = 0;
-    int iteracion = 0;
-    while (pasos_estables < kPasosEstablesRequeridos) {
+    vector<double> v_momento_inercia(kNumRuns, 0.0);
+    vector<double> v_flujo_masa(kNumRuns, 0.0);
+    vector<vector<double>> v_densidad_radial(kNumRuns, vector<double>(kNumAnillos, 0.0));
+
+    for (size_t run = 0; run < kNumRuns; ++run) {
+        MassArray masa_run = masa;
+        double t_run = 0.0;
+
+        PlanetArray x_curr = x0;
+        PlanetArray v_curr = v0;
+
         regenerar_si_cerca_origen(x_curr, v_curr, rng);
-        calcular_siguiente_paso(x_curr, v_curr, a_curr, x_next, v_next, a_next, masa, h);
+        PlanetArray a_curr = calcular_aceleraciones(x_curr, masa_run);
+        PlanetArray x_next{};
+        PlanetArray v_next{};
+        PlanetArray a_next{};
 
-        double energia_actual = energia_total(x_next, v_next, masa);
-        if (fabs(energia_actual - energia_anterior) <= kEnergiaUmbral) {
-            pasos_estables++;
-        } else {
-            pasos_estables = 0;
+        double energia_anterior = energia_total(x_curr, v_curr, masa_run);
+        constexpr double kEnergiaUmbral = 1e-5;
+        constexpr int kPasosEstablesRequeridos = 10;
+        int pasos_estables = 0;
+        int iteracion = 0;
+
+        while (pasos_estables < kPasosEstablesRequeridos) {
+            regenerar_si_cerca_origen(x_curr, v_curr, rng);
+            calcular_siguiente_paso(x_curr, v_curr, a_curr, x_next, v_next, a_next, masa_run, h);
+
+            double energia_actual = energia_total(x_next, v_next, masa_run);
+            if (fabs(energia_actual - energia_anterior) <= kEnergiaUmbral) {
+                pasos_estables++;
+            } else {
+                pasos_estables = 0;
+            }
+
+            energia_anterior = energia_actual;
+            x_curr = x_next;
+            v_curr = v_next;
+            a_curr = a_next;
+            t_run += h;
+            iteracion++;
         }
 
-        energia_anterior = energia_actual;
-        x_curr = x_next;
-        v_curr = v_next;
-        a_curr = a_next;
-        t += h;
-        iteracion++;
+        Trajectory x(N_final, PlanetArray{});
+        Trajectory v(N_final, PlanetArray{});
+        Trajectory a(N_final, PlanetArray{});
+        EnergyArray E(N_final);
+        Trajectory L(N_final, PlanetArray{});
+        Trajectory p(N_final, PlanetArray{});
+        EnergyArray mod_p(N_final);
+        array<double, kNumPlanetas> periodo{};
+        vector<double> tiempos;
+        vector<double> energias;
+
+        Verlet(t_run, h, N_final, x_curr, v_curr, x, v, a, masa_run, rng, tiempos, energias);
+
+        if (run == 0) {
+            escribir_datos(trayectorias, x);
+            escribir_datos(velocidades, v);
+            escribir_datos(aceleraciones, a);
+        }
+
+        deshacer_reescalado(x, v, a, masa_run);
+
+        if (run == 0) {
+            invariantes(x, v, masa_run, E, L, p, mod_p);
+            periodos(E, masa_run, periodo);
+            convertir_periodo_a_dias(periodo);
+            escribir_datos_periodo(periodo_file, periodo);
+
+            const double factorEnergia = kG * kUnidadMasa * kUnidadMasa / kUnidadDistancia;
+            const double factorTiempo = pow(kUnidadDistancia, 1.5) / sqrt(kG * kUnidadMasa);
+            for (size_t j = 0; j < tiempos.size(); ++j) {
+                double tiempo_real = tiempos[j] * factorTiempo;
+                double energia_real = energias[j] * factorEnergia;
+                estado_estacionario << tiempo_real << " " << energia_real << "\n";
+            }
+            cout << "Iteraciones hasta estabilidad (Simulación 0 de control): " << iteracion << endl;
+        }
+
+        calcular_distribucion_radial(x, masa_run, v_densidad_radial[run]);
+        v_momento_inercia[run] = calcular_momento_inercia_medio(x, masa_run);
+        v_flujo_masa[run] = calcular_flujo_masa_absorbido(x, masa_run, h);
     }
 
-    Trajectory x(N_final, PlanetArray{});
-    Trajectory v(N_final, PlanetArray{});
-    Trajectory a(N_final, PlanetArray{});
-    EnergyArray E(N_final);
-    Trajectory L(N_final, PlanetArray{});
-    Trajectory p(N_final, PlanetArray{});
-    EnergyArray mod_p(N_final);
-    array<double, kNumPlanetas> periodo{};
-    vector<double> tiempos;
-    vector<double> energias;
+    double mean_inercia = 0.0;
+    for (double val : v_momento_inercia) mean_inercia += val;
+    mean_inercia /= static_cast<double>(kNumRuns);
 
-    Verlet(t, h, N_final, x_curr, v_curr, x, v, a, masa, rng, tiempos, energias);
-    escribir_datos(trayectorias, x);
-    escribir_datos(velocidades, v);
-    escribir_datos(aceleraciones, a);
+    double var_inercia = 0.0;
+    for (double val : v_momento_inercia) var_inercia += (val - mean_inercia) * (val - mean_inercia);
+    var_inercia /= static_cast<double>(kNumRuns);
+    double sigma_inercia = sqrt(var_inercia);
+    double error_inercia = sigma_inercia / sqrt(static_cast<double>(kNumRuns));
 
-    deshacer_reescalado(x, v, a, masa);
-    invariantes(x, v, masa, E, L, p, mod_p);
-    periodos(E, masa, periodo);
-    convertir_periodo_a_dias(periodo);
-    calcular_distribucion_radial(x, masa, "densidad_radial.dat");
-    calcular_distribucion_radial(x, masa, "densidad_radial.dat");
-    calcular_momento_inercia_medio(x, masa, "momento_inercia.dat");
-    calcular_flujo_masa_absorbido(x, masa, h); // Le pasamos h para calcular el tiempo total
+    ofstream out_inercia("momento_inercia.dat");
+    if (out_inercia) {
+        out_inercia << "Momento_Inercia_Medio(kg*m^2) Error_Estadistico_Estandar(kg*m^2)\n";
+        out_inercia << mean_inercia << " " << error_inercia << "\n";
+        out_inercia.close();
+    }
 
-    const double factorEnergia = kG * kUnidadMasa * kUnidadMasa / kUnidadDistancia;
-    const double factorTiempo = pow(kUnidadDistancia, 1.5) / sqrt(kG * kUnidadMasa);
-    for (size_t j = 0; j < tiempos.size(); ++j) {
-        double tiempo_real = tiempos[j] * factorTiempo;
-        double energia_real = energias[j] * factorEnergia;
-        estado_estacionario << tiempo_real << " " << energia_real << "\n";
+    double mean_flujo = 0.0;
+    for (double val : v_flujo_masa) mean_flujo += val;
+    mean_flujo /= static_cast<double>(kNumRuns);
+
+    double var_flujo = 0.0;
+    for (double val : v_flujo_masa) var_flujo += (val - mean_flujo) * (val - mean_flujo);
+    var_flujo /= static_cast<double>(kNumRuns);
+    double sigma_flujo = sqrt(var_flujo);
+    double error_flujo = sigma_flujo / sqrt(static_cast<double>(kNumRuns));
+
+    cout << "\n=========================================================\n";
+    cout << "   ANÁLISIS ESTADÍSTICO DE ERRORES RIGUROSO (MULTI-RUN)  \n";
+    cout << "=========================================================\n";
+    cout << "Momento de Inercia Medio Global: " << mean_inercia << " kg*m^2\n";
+    cout << "Error Estadístico Estándar (σ_X): " << error_inercia << " kg*m^2\n";
+    cout << "Intervalo Confianza (95.4%): [" << mean_inercia - 2.0 * error_inercia << ", " << mean_inercia + 2.0 * error_inercia << "] kg*m^2\n\n";
+
+    cout << "Flujo Medio de Masa Absorbido Global: " << mean_flujo << " kg/s\n";
+    cout << "Error Estadístico Estándar (σ_X): " << error_flujo << " kg/s\n";
+    cout << "Intervalo Confianza (95.4%): [" << mean_flujo - 2.0 * error_flujo << ", " << mean_flujo + 2.0 * error_flujo << "] kg/s\n";
+    cout << "=========================================================\n\n";
+
+    vector<double> mean_densidad(kNumAnillos, 0.0);
+    vector<double> error_densidad(kNumAnillos, 0.0);
+
+    for (size_t i = 0; i < kNumAnillos; ++i) {
+        double suma_anillo = 0.0;
+        for (size_t run = 0; run < kNumRuns; ++run) {
+            suma_anillo += v_densidad_radial[run][i];
+        }
+        mean_densidad[i] = suma_anillo / static_cast<double>(kNumRuns);
+
+        double var_anillo = 0.0;
+        for (size_t run = 0; run < kNumRuns; ++run) {
+            var_anillo += (v_densidad_radial[run][i] - mean_densidad[i]) * (v_densidad_radial[run][i] - mean_densidad[i]);
+        }
+        var_anillo /= static_cast<double>(kNumRuns);
+        double sigma_anillo = sqrt(var_anillo);
+        error_densidad[i] = sigma_anillo / sqrt(static_cast<double>(kNumRuns));
+    }
+
+    ofstream out_radial("densidad_radial.dat");
+    if (out_radial) {
+        const double r_max = kUnidadDistancia;
+        const double delta_r = r_max / kNumAnillos;
+        for (size_t i = 0; i < kNumAnillos; ++i) {
+            double r_interno = i * delta_r;
+            double r_externo = (i + 1) * delta_r;
+            double r_medio = (r_interno + r_externo) / 2.0;
+            out_radial << r_medio << " " << mean_densidad[i] << " " << error_densidad[i] << "\n";
+        }
+        out_radial.close();
     }
 
     auto fin = chrono::high_resolution_clock::now();
     chrono::duration<double, milli> tiempo_ejecucion = fin - inicio;
-    cout << "El código tardó: " << tiempo_ejecucion.count() << " milisegundos." << endl;
-    cout << "Iteraciones hasta estabilidad: " << iteracion << endl;
+    cout << "El código multi-run completo tardó: " << tiempo_ejecucion.count() << " milisegundos." << endl;
 
     return 0;
 }
@@ -197,6 +290,7 @@ void leer_datos(ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& mas
 }
 
 void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
+#pragma omp parallel for schedule(static)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         x0[i][0] /= kUnidadDistancia;
         x0[i][1] /= kUnidadDistancia;
@@ -204,7 +298,6 @@ void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
         v0[i][1] *= pow(kUnidadDistancia, 1.5) / (kUnidadDistancia * sqrt(kG * kUnidadMasa));
         masa[i] /= kUnidadMasa;
     }
-
     h *= sqrt(kG * kUnidadMasa / (kUnidadDistancia * kUnidadDistancia * kUnidadDistancia));
 }
 
@@ -212,32 +305,21 @@ void deshacer_reescalado(Trajectory& x, Trajectory& v, Trajectory& a, MassArray&
     const double factorVel = 1.0 / (pow(kUnidadDistancia, 1.5) / (kUnidadDistancia * sqrt(kG * kUnidadMasa)));
     const double factorAcel = kG * kUnidadMasa / (kUnidadDistancia * kUnidadDistancia);
 
-    for (auto& paso : x) {
-        for (auto& planeta : paso) {
-            for (auto& componente : planeta) {
-                componente *= kUnidadDistancia;
-            }
+#pragma omp parallel for schedule(dynamic)
+    for (size_t n = 0; n < x.size(); ++n) {
+        for (size_t i = 0; i < kNumPlanetas; ++i) {
+            x[n][i][0] *= kUnidadDistancia;
+            x[n][i][1] *= kUnidadDistancia;
+            v[n][i][0] *= factorVel;
+            v[n][i][1] *= factorVel;
+            a[n][i][0] *= factorAcel;
+            a[n][i][1] *= factorAcel;
         }
     }
 
-    for (auto& paso : v) {
-        for (auto& planeta : paso) {
-            for (auto& componente : planeta) {
-                componente *= factorVel;
-            }
-        }
-    }
-
-    for (auto& paso : a) {
-        for (auto& planeta : paso) {
-            for (auto& componente : planeta) {
-                componente *= factorAcel;
-            }
-        }
-    }
-
-    for (auto& masa_planeta : masa) {
-        masa_planeta *= kUnidadMasa;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        masa[i] *= kUnidadMasa;
     }
 }
 
@@ -268,6 +350,7 @@ void regenerar_si_cerca_origen(PlanetArray& x, PlanetArray& v, std::mt19937_64& 
 }
 
 void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_curr, const PlanetArray& a_curr, PlanetArray& x_next, PlanetArray& v_next, PlanetArray& a_next, const MassArray& masa, double h) {
+#pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         for (size_t j = 0; j < kNumCoordenadas; ++j) {
             x_next[i][j] = x_curr[i][j] + v_curr[i][j] * h + 0.5 * a_curr[i][j] * h * h;
@@ -276,6 +359,7 @@ void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_cur
 
     a_next = calcular_aceleraciones(x_next, masa);
 
+#pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         for (size_t j = 0; j < kNumCoordenadas; ++j) {
             v_next[i][j] = v_curr[i][j] + 0.5 * (a_curr[i][j] + a_next[i][j]) * h;
@@ -302,6 +386,7 @@ void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_cur
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa) {
     PlanetArray aceleraciones{};
 
+#pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         aceleraciones[i] = {0.0, 0.0};
 
@@ -366,7 +451,6 @@ void Verlet(double& t, double h, int N, const PlanetArray& x0, const PlanetArray
         v_curr = v_next;
         a_curr = a_next;
         t += h;
-        
         tiempos.push_back(t);
         energias.push_back(energia_total(x_curr, v_curr, masa));
     }
@@ -397,10 +481,11 @@ void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& pe
 }
 
 void invariantes(const Trajectory& x, const Trajectory& v, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p) {
+#pragma omp parallel for collapse(2) schedule(dynamic)
     for (size_t n = 0; n < x.size(); ++n) {
         for (size_t i = 0; i < kNumPlanetas; ++i) {
             const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
-            double masa_sol = 2e30; // Masa del sol
+            double masa_sol = 2e30;
             double dist_sol = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
             double energia_potencial = -kG * masa_sol * masa[i] / dist_sol;
 
@@ -487,136 +572,98 @@ bool haycolision(const PlanetArray& posiciones, size_t i, size_t k) {
     return distancia < kRadioColisionEscalada;
 }
 
-void calcular_distribucion_radial(const Trajectory& x, const MassArray& masa, const string& nombre_archivo) {
-    // Definimos el número de anillos concéntricos (puedes ajustar este número)
-    constexpr size_t kNumAnillos = 100; 
-    
-    // El radio máximo de la galaxia es el radio de la Vía Láctea en metros
-    const double r_max = kUnidadDistancia; 
+void calcular_distribucion_radial(const Trajectory& x, const MassArray& masa, vector<double>& densidad_anillos) {
+    constexpr size_t kNumAnillos = 100;
+    const double r_max = kUnidadDistancia;
     const double delta_r = r_max / kNumAnillos;
 
-    // Vector para acumular la masa en cada anillo
     vector<double> masa_acumulada(kNumAnillos, 0.0);
     size_t num_pasos = x.size();
+    int nthreads = omp_get_max_threads();
+    vector<array<double, kNumAnillos>> masa_local(nthreads);
+    for (auto& arr : masa_local) {
+        arr.fill(0.0);
+    }
 
-    // 1. Recorrer todos los pasos temporales y todos los planetas
-    for (size_t n = 0; n < num_pasos; ++n) {
-        for (size_t i = 0; i < kNumPlanetas; ++i) {
-            // Calcular la distancia del sistema solar al centro (agujero negro)
-            double r = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
-            
-            // Determinar en qué anillo cae según su radio
-            size_t indice_anillo = static_cast<size_t>(r / delta_r);
-            
-            // Asegurarnos de no salirnos del rango del vector por errores numéricos
-            if (indice_anillo < kNumAnillos) {
-                masa_acumulada[indice_anillo] += masa[i];
+#pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        auto& local_acumulado = masa_local[tid];
+
+#pragma omp for schedule(dynamic)
+        for (size_t n = 0; n < num_pasos; ++n) {
+            for (size_t i = 0; i < kNumPlanetas; ++i) {
+                double r = sqrt(x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1]);
+                size_t indice_anillo = static_cast<size_t>(r / delta_r);
+                if (indice_anillo < kNumAnillos) {
+                    local_acumulado[indice_anillo] += masa[i];
+                }
             }
         }
     }
 
-    // 2. Abrir el archivo de salida para guardar los resultados
-    ofstream out(nombre_archivo);
-    if (!out) {
-        cerr << "Error: no se pudo crear el archivo " << nombre_archivo << "\n";
-        return;
+    for (int t = 0; t < nthreads; ++t) {
+        for (size_t i = 0; i < kNumAnillos; ++i) {
+            masa_acumulada[i] += masa_local[t][i];
+        }
     }
 
-    // 3. Calcular la densidad media para cada anillo y escribirla
+    densidad_anillos.assign(kNumAnillos, 0.0);
     for (size_t i = 0; i < kNumAnillos; ++i) {
         double r_interno = i * delta_r;
         double r_externo = (i + 1) * delta_r;
-        
-        // Área del anillo circular en 2D: A = pi * (r_out^2 - r_in^2)
         double area_anillo = kPi * (r_externo * r_externo - r_interno * r_interno);
-        
-        // Masa promedio que hubo en este anillo por cada instante de tiempo
         double masa_promedio = masa_acumulada[i] / static_cast<double>(num_pasos);
-        
-        // Densidad superficial media de masa (kg / m^2)
-        double densidad = masa_promedio / area_anillo;
-        
-        // Radio medio del anillo (punto medio útil para representar en gráficas)
-        double r_medio = (r_interno + r_externo) / 2.0;
-
-        // Guardamos: [Radio medio] [Densidad de masa]
-        out << r_medio << " " << densidad << "\n";
+        densidad_anillos[i] = masa_promedio / area_anillo;
     }
-    
-    out.close();
 }
 
-void calcular_momento_inercia_medio(const Trajectory& x, const MassArray& masa, const string& nombre_archivo) {
+double calcular_momento_inercia_medio(const Trajectory& x, const MassArray& masa) {
     double inercia_total_acumulada = 0.0;
     size_t num_pasos = x.size();
 
-    // 1. Calcular el momento de inercia en cada instante de tiempo
+#pragma omp parallel for reduction(+ : inercia_total_acumulada) schedule(dynamic)
     for (size_t n = 0; n < num_pasos; ++n) {
         double inercia_paso = 0.0;
         for (size_t i = 0; i < kNumPlanetas; ++i) {
-            // Distancia al cuadrado al centro (agujero negro)
             double r2 = x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1];
             inercia_paso += masa[i] * r2;
         }
         inercia_total_acumulada += inercia_paso;
     }
 
-    // 2. Calcular la media temporal
-    double inercia_media = inercia_total_acumulada / static_cast<double>(num_pasos);
-
-    // 3. Imprimir por consola y guardar en archivo
-    cout << "Momento de inercia medio del sistema: " << inercia_media << " kg*m^2\n";
-
-    ofstream out(nombre_archivo);
-    if (out) {
-        out << "Momento_de_inercia_medio(kg*m^2)\n";
-        out << inercia_media << "\n";
-        out.close();
-    } else {
-        cerr << "Error: no se pudo crear el archivo " << nombre_archivo << "\n";
-    }
+    return inercia_total_acumulada / static_cast<double>(num_pasos);
 }
 
-void calcular_flujo_masa_absorbido(const Trajectory& x, const MassArray& masa, double h_reducido) {
+double calcular_flujo_masa_absorbido(const Trajectory& x, const MassArray& masa, double h_reducido) {
     double masa_absorbida_total = 0.0;
     size_t num_pasos = x.size();
-    
-    // Como la trayectoria ya está des-reescalada (en metros), adaptamos el radio de regeneración
+
     double radio_absorcion_metros = kRadioRegeneracion * kUnidadDistancia;
     double r_abs_cuadrado = radio_absorcion_metros * radio_absorcion_metros;
 
-    // 1. Detectar cuántas veces un cuerpo cruza el horizonte hacia adentro
+#pragma omp parallel for reduction(+ : masa_absorbida_total) schedule(dynamic)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
-        // Estado inicial del planeta i en el primer paso
         bool estaba_dentro = (x[0][i][0] * x[0][i][0] + x[0][i][1] * x[0][i][1]) < r_abs_cuadrado;
-        
+
         for (size_t n = 1; n < num_pasos; ++n) {
             double r2 = x[n][i][0] * x[n][i][0] + x[n][i][1] * x[n][i][1];
             bool esta_dentro = r2 < r_abs_cuadrado;
-            
-            // Si en el paso anterior estaba fuera y ahora está dentro, ha sido absorbido
+
             if (!estaba_dentro && esta_dentro) {
                 masa_absorbida_total += masa[i];
             }
-            
-            // Actualizamos el estado para la siguiente iteración temporal
             estaba_dentro = esta_dentro;
         }
     }
 
-    // 2. Calcular el tiempo total real transcurrido durante las mediciones
-    // Hay que deshacer el reescalado del tiempo (h_reducido) para tener segundos
     const double factorTiempo = pow(kUnidadDistancia, 1.5) / sqrt(kG * kUnidadMasa);
     double tiempo_total_real_segundos = static_cast<double>(num_pasos) * h_reducido * factorTiempo;
 
-    // 3. Calcular el flujo (kg / s)
     double flujo_medio = 0.0;
     if (tiempo_total_real_segundos > 0.0) {
         flujo_medio = masa_absorbida_total / tiempo_total_real_segundos;
     }
 
-    // 4. Mostrar resultados por consola
-    cout << "Masa total absorbida durante medicion: " << masa_absorbida_total << " kg\n";
-    cout << "Tiempo total de medicion: " << tiempo_total_real_segundos << " s\n";
-    cout << "Flujo medio de masa absorbido: " << flujo_medio << " kg/s\n";
+    return flujo_medio;
 }

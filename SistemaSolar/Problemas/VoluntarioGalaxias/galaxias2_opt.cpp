@@ -5,6 +5,7 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <omp.h>
 
 using namespace std;
 
@@ -197,6 +198,7 @@ void leer_datos(ifstream& data, PlanetArray& x0, PlanetArray& v0, MassArray& mas
 }
 
 void reescalar(double& h, PlanetArray& x0, PlanetArray& v0, MassArray& masa) {
+#pragma omp parallel for
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         x0[i][0] /= kUnidadDistancia;
         x0[i][1] /= kUnidadDistancia;
@@ -268,6 +270,7 @@ void regenerar_si_cerca_origen(PlanetArray& x, PlanetArray& v, std::mt19937_64& 
 }
 
 void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_curr, const PlanetArray& a_curr, PlanetArray& x_next, PlanetArray& v_next, PlanetArray& a_next, const MassArray& masa, double h) {
+#pragma omp parallel for
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         for (size_t j = 0; j < kNumCoordenadas; ++j) {
             x_next[i][j] = x_curr[i][j] + v_curr[i][j] * h + 0.5 * a_curr[i][j] * h * h;
@@ -276,6 +279,7 @@ void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_cur
 
     a_next = calcular_aceleraciones(x_next, masa);
 
+#pragma omp parallel for
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         for (size_t j = 0; j < kNumCoordenadas; ++j) {
             v_next[i][j] = v_curr[i][j] + 0.5 * (a_curr[i][j] + a_next[i][j]) * h;
@@ -302,6 +306,7 @@ void calcular_siguiente_paso(const PlanetArray& x_curr, const PlanetArray& v_cur
 PlanetArray calcular_aceleraciones(const PlanetArray& posiciones, const MassArray& masa) {
     PlanetArray aceleraciones{};
 
+#pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         aceleraciones[i] = {0.0, 0.0};
 
@@ -397,7 +402,9 @@ void escribir_datos_periodo(ofstream& out, const array<double, kNumPlanetas>& pe
 }
 
 void invariantes(const Trajectory& x, const Trajectory& v, const MassArray& masa, EnergyArray& E, Trajectory& L, Trajectory& p, EnergyArray& mod_p) {
-    for (size_t n = 0; n < x.size(); ++n) {
+    size_t num_pasos = x.size();
+#pragma omp parallel for schedule(dynamic)
+    for (size_t n = 0; n < num_pasos; ++n) {
         for (size_t i = 0; i < kNumPlanetas; ++i) {
             const double energia_cinetica = 0.5 * masa[i] * (v[n][i][0] * v[n][i][0] + v[n][i][1] * v[n][i][1]);
             double masa_sol = 2e30; // Masa del sol
@@ -434,6 +441,7 @@ void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPla
         }
     }
 
+#pragma omp parallel for
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         energia_media[i] /= static_cast<double>(E.size());
         if (energia_media[i] >= 0.0) {
@@ -447,14 +455,16 @@ void periodos(const EnergyArray& E, const MassArray& masa, array<double, kNumPla
 
 void convertir_periodo_a_dias(array<double, kNumPlanetas>& periodos) {
     constexpr double segundos_por_dia = 86400.0;
-    for (auto& periodo : periodos) {
-        periodo /= segundos_por_dia;
+#pragma omp parallel for
+    for (size_t i = 0; i < kNumPlanetas; ++i) {
+        periodos[i] /= segundos_por_dia;
     }
 }
 
 double energia_total(const PlanetArray& x, const PlanetArray& v, const MassArray& masa) {
     double energia = 0.0;
 
+#pragma omp parallel for reduction(+:energia)
     for (size_t i = 0; i < kNumPlanetas; ++i) {
         energia += 0.5 * masa[i] * (v[i][0] * v[i][0] + v[i][1] * v[i][1]);
         double dist_sol = sqrt(x[i][0] * x[i][0] + x[i][1] * x[i][1]);
