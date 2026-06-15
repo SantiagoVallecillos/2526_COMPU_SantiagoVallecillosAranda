@@ -6,12 +6,15 @@
 #define N 1000            // Tamaño de las matrices
 #define TOTAL_TRIALS 100000000
 
+using namespace std;
+
 static int sord[N][N];
 static int sdesord[N][N];
+static int sord_next[N][N];
+static int sdesord_next[N][N];
 
 // ---------------------------------------------------------
 // NUEVA FUNCIÓN: Cálculo de errores estadísticos (Montecarlo)
-// Basado en los apuntes proporcionados.
 // ---------------------------------------------------------
 void calcular_error_montecarlo(const std::vector<double>& medidas, double& media, double& error) 
 {
@@ -51,6 +54,20 @@ int delta_energy(const int spins[N][N], int n, int m)
     int right = spins[n][(m + 1) % N];
     int left = spins[n][(m - 1 + N) % N];
     return 2 * spins[n][m] * (up + down + right + left);
+}
+
+//Calcula la energia total del sistema en cada configuracion "a lo bruto"
+int total_energy(const int spins[N][N])
+{
+    int energy = 0;
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            energy+= -spins[i][j]*(spins[(i + 1) % N][j] + spins[(i - 1 + N) % N][j] + spins[i][(j + 1) % N] + spins[i][(j - 1 + N) % N]);
+        }
+    }
+    return energy / 2; // Dividimos por 2 para evitar contar cada interacción dos veces
 }
 
 // Inicializa la configuración ordenada (todos los espines +1)
@@ -94,18 +111,46 @@ void write_lattice(FILE *file, const int spins[N][N])
     fprintf(file, "\n");
 }
 
-// Realiza un paso de Monte Carlo completo (un "sweep" N*N de ensayos)
-void metropolis_sweep(int spins[N][N], double T)
+// Realiza un paso de Monte Carlo completo (un "sweep" N*N de ensayos) utilizando la dinámica de Kawasaki
+void metropolis_sweep(int spins[N][N], int spins_next[N][N], double T)
 {
     for (int trial = 0; trial < N * N; ++trial)
     {
         int n = rand() % N;
         int m = rand() % N;
-        int dE = delta_energy(spins, n, m);
-        double p = std::min(1.0, exp(-dE / T));
+
+        //Elegimos espín vecino aleatorio para intercambiarlo con el espín actual
+        int n2 = n;
+        int m2 = m;
+        int vecino = rand() % 4;
+        if (vecino == 0)
+            n2 = (n + 1) % N;
+        else if (vecino == 1)
+            n2 = (n - 1 + N) % N;
+        else if (vecino == 2)
+            m2 = (m + 1) % N;
+        else
+            m2 = (m - 1 + N) % N;
+
+        // Intercambiamos los espines y calculamos el cambio de energía
+        spins_next[n][m] = spins[n][m];
+        spins_next[n2][m2] = spins[n2][m2];
+        int temp = spins_next[n][m]; //Variable temporal para poder hacer el intercambio
+        spins_next[n][m] = spins_next[n2][m2];
+        spins_next[n2][m2] = temp;
+
+        int dE = total_energy(spins_next) - total_energy(spins); // Calculamos el cambio de energia
+        double p = min(1.0, exp(-dE / T));
         if (random_double() < p)
         {
-            spins[n][m] = -spins[n][m];
+            temp = spins[n][m];
+            spins[n][m] = spins[n2][m2];
+            spins[n2][m2] = temp;
+        }
+        else
+        {
+            spins_next[n][m] = spins[n][m];
+            spins_next[n2][m2] = spins[n2][m2];
         }
     }
 }
@@ -271,10 +316,20 @@ int main()
     write_lattice(ford1, sord);
     write_lattice(fdesord1, sdesord);
 
+    //Igualamos las matrices de espines "next" a las actuales para que la función metropolis_sweep funcione correctamente
+    for (int n = 0; n < N; ++n)
+    {
+        for (int m = 0; m < N; ++m)
+        {
+            sord_next[n][m] = sord[n][m];
+            sdesord_next[n][m] = sdesord[n][m];
+        }
+    }
+
     for (int step = 0; step < mc_steps; ++step) 
     {
-        metropolis_sweep(sord, T_low);
-        metropolis_sweep(sdesord, T_low);
+        metropolis_sweep(sord, sord_next, T_low);
+        metropolis_sweep(sdesord, sdesord_next, T_low);
         write_lattice(ford1, sord);
         write_lattice(fdesord1, sdesord);
     }
@@ -307,10 +362,20 @@ int main()
     write_lattice(ford2, sord);
     write_lattice(fdesord2, sdesord);
 
+    //Igualamos las matrices de espines "next" a las actuales para que la función metropolis_sweep funcione correctamente
+    for (int n = 0; n < N; ++n)
+    {
+        for (int m = 0; m < N; ++m)
+        {
+            sord_next[n][m] = sord[n][m];
+            sdesord_next[n][m] = sdesord[n][m];
+        }
+    }
+
     for (int step = 0; step < mc_steps; ++step)
     {
-        metropolis_sweep(sord, T_high);
-        metropolis_sweep(sdesord, T_high);
+        metropolis_sweep(sord, sord_next, T_high);
+        metropolis_sweep(sdesord, sdesord_next, T_high);
         write_lattice(ford2, sord);
         write_lattice(fdesord2, sdesord);
     }
