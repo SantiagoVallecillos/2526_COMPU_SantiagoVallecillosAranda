@@ -2,6 +2,10 @@
 #include <cmath>
 #include <cstdlib>
 #include <vector> // Necesario para almacenar las mediciones
+#include <ctime>
+#include <omp.h>
+#include <iostream>
+
 
 #define N 100            // Tamaño de las matrices
 #define TOTAL_TRIALS 100000000
@@ -13,16 +17,22 @@ static int sdesord[N][N];
 static int sord_next[N][N];
 static int sdesord_next[N][N];
 
+// RNG thread-safe helper usando rand_r
+static inline double thread_random_double(unsigned int &seed)
+{
+    return static_cast<double>(rand_r(&seed)) / (RAND_MAX + 1.0);
+}
+
 // ---------------------------------------------------------
 // NUEVA FUNCIÓN: Cálculo de errores estadísticos (Montecarlo)
 // ---------------------------------------------------------
-void calcular_error_montecarlo(const std::vector<double>& medidas, double& media, double& error) 
+void calcular_error_montecarlo(const std::vector<double>& medidas, double& media, double& error)
 {
     int N_exp = medidas.size();
     media = 0.0;
-    
+
     // 1. Calculamos el valor medio
-    for (int i = 0; i < N_exp; ++i) 
+    for (int i = 0; i < N_exp; ++i)
     {
         media += medidas[i];
     }
@@ -30,7 +40,7 @@ void calcular_error_montecarlo(const std::vector<double>& medidas, double& media
 
     // 2. Calculamos la varianza (sigma^2 = 1/N * sum(X_i - X_media)^2)
     double varianza = 0.0;
-    for (int i = 0; i < N_exp; ++i) 
+    for (int i = 0; i < N_exp; ++i)
     {
         varianza += (medidas[i] - media) * (medidas[i] - media);
     }
@@ -40,7 +50,7 @@ void calcular_error_montecarlo(const std::vector<double>& medidas, double& media
     error = sqrt(varianza / N_exp);
 }
 
-// Devuelve un número aleatorio uniforme en [0, 1)
+// Devuelve un número aleatorio uniforme en [0, 1) (no-thread-safe, usado fuera de regiones paralelas)
 double random_double()
 {
     return static_cast<double>(rand()) / (RAND_MAX + 1.0);
@@ -114,21 +124,6 @@ void initialize_disordered(int spins[N][N])
     }
 }
 
-// Inicializa la configuración desordenada con condiciones de frontera fijas en los bordes de la dirección Y
-void initialize_disordered_bc(int spins[N][N])
-{
-    for (int n = 0; n < N; ++n)
-    {
-        for (int m = 0; m < N; ++m)
-        {
-            if (m == 0 || m == N - 1)
-                spins[n][m] = 1; // Bordes fijos en el eje Y
-            else
-                spins[n][m] = (random_double() <= 0.5) ? 1 : -1;
-        }
-    }
-}
-
 // Escribe la matriz de espines en el fichero con formato CSV
 void write_lattice(FILE *file, const int spins[N][N])
 {
@@ -147,17 +142,18 @@ void write_lattice(FILE *file, const int spins[N][N])
 }
 
 // Realiza un paso de Monte Carlo completo (un "sweep" N*N de ensayos) utilizando la dinámica de Kawasaki
-void metropolis_sweep(int spins[N][N], int spins_next[N][N], double T)
+// Ahora usa RNG por hilo (seed) para ser seguro en regiones paralelas
+void metropolis_sweep(int spins[N][N], int spins_next[N][N], double T, unsigned int &seed)
 {
     for (int trial = 0; trial < N * N; ++trial)
     {
-        int n = rand() % N;
-        int m = rand() % N;
+        int n = rand_r(&seed) % N;
+        int m = rand_r(&seed) % N;
 
         //Elegimos espín vecino aleatorio para intercambiarlo con el espín actual
         int n2 = n;
         int m2 = m;
-        int vecino = rand() % 4;
+        int vecino = rand_r(&seed) % 4;
         if (vecino == 0)
             n2 = (n + 1) % N;
         else if (vecino == 1)
@@ -166,73 +162,11 @@ void metropolis_sweep(int spins[N][N], int spins_next[N][N], double T)
             m2 = (m + 1) % N;
         else
             m2 = (m - 1 + N) % N;
-        // Calculamos el cambio de energía localmente (O(1)) y decidimos aceptación
-        int dE = delta_energy_swap(spins, n, m, n2, m2);
-        double p = min(1.0, exp(-dE / T));
-        if (random_double() < p)
-        {
-            int temp = spins[n][m];
-            spins[n][m] = spins[n2][m2];
-            spins[n2][m2] = temp;
-            spins_next[n][m] = spins[n][m];
-            spins_next[n2][m2] = spins[n2][m2];
-        }
-        else
-        {
-            spins_next[n][m] = spins[n][m];
-            spins_next[n2][m2] = spins[n2][m2];
-        }
-    }
-}
-
-// Realiza un paso de Monte Carlo completo (un "sweep" N*N de ensayos) utilizando la dinámica de Kawasaki
-// utilizando las condiciones de contorno fijas en los bordes de la dirección Y
-void metropolis_sweep_bc(int spins[N][N], int spins_next[N][N], double T)
-{
-    for (int trial = 0; trial < N * N; ++trial)
-    {
-        // Elegimos un espín aleatorio que no esté en los bordes fijos
-        int n = rand() % N;
-        int m = 1 + rand() % (N - 2); // solo posiciones interiores en Y
-
-        // Elegimos un vecino aleatorio válido que no esté en los bordes fijos
-        int candidates[4][2];
-        int count = 0;
-
-        // Vecino derecha
-        candidates[count][0] = (n + 1) % N;
-        candidates[count][1] = m;
-        count++;
-
-        // Vecino izquierda
-        candidates[count][0] = (n - 1 + N) % N;
-        candidates[count][1] = m;
-        count++;
-
-        // Vecino abajo, solo si no es borde fijo
-        if (m - 1 != 0)
-        {
-            candidates[count][0] = n;
-            candidates[count][1] = m - 1;
-            count++;
-        }
-
-        // Vecino arriba, solo si no es borde fijo
-        if (m + 1 != N - 1)
-        {
-            candidates[count][0] = n;
-            candidates[count][1] = m + 1;
-            count++;
-        }
-
-        int choice = rand() % count;
-        int n2 = candidates[choice][0];
-        int m2 = candidates[choice][1];
 
         // Calculamos el cambio de energía localmente (O(1)) y decidimos aceptación
         int dE = delta_energy_swap(spins, n, m, n2, m2);
         double p = min(1.0, exp(-dE / T));
-        if (random_double() < p)
+        if (thread_random_double(seed) < p)
         {
             int temp = spins[n][m];
             spins[n][m] = spins[n2][m2];
@@ -252,9 +186,7 @@ void metropolis_sweep_bc(int spins[N][N], int spins_next[N][N], double T)
 void calculate_magnetization()
 {
     #define N_MAG 64
-    int sN[N_MAG][N_MAG];
-    constexpr int N_TEMPS = 10;
-    const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
+    double T_m[10];
     double mN16, mN32, mN64;
     int i, j, k, n, m, randn, randm;
     double deltaE, p, dseta;
@@ -269,8 +201,20 @@ void calculate_magnetization()
         return;
     }
 
+    // Inicializamos las temperaturas
+    T_m[0] = 1.5;
+    T_m[1] = 1.7;
+    T_m[2] = 1.9;
+    T_m[3] = 2.1;
+    T_m[4] = 2.3;
+    T_m[5] = 2.5;
+    T_m[6] = 2.7;
+    T_m[7] = 2.9;
+    T_m[8] = 3.1;
+    T_m[9] = 3.3;
+
     // Número de experimentos independientes por temperatura para sacar estadísticas
-    const int N_experimentos = 10;
+    int N_experimentos = 10;
 
     // Hacemos los cálculos de la magnetización
     for (i = 0; i < 10; i++)
@@ -280,11 +224,16 @@ void calculate_magnetization()
         std::vector<double> medidas64(N_experimentos);
 
         // Repetimos el experimento N veces para calcular los errores
-            for (int rep = 0; rep < N_experimentos; ++rep)
-            {
-                mN16 = 0;
-                mN32 = 0;
-                mN64 = 0;
+        #pragma omp parallel for private(j,k,n,m,randn,randm,deltaE,p,dseta,mN16,mN32,mN64)
+        for (int rep = 0; rep < N_experimentos; ++rep)
+        {
+            int sN[N_MAG][N_MAG];
+            mN16 = 0;
+            mN32 = 0;
+            mN64 = 0;
+
+            // Seed por hilo/rep
+            unsigned int seed = (unsigned int)time(NULL) ^ (i * 10007u) ^ (rep * 1315423911u) ^ (omp_get_thread_num() * 2654435761u);
 
             // Generamos una configuración inicial de espines ordenada
             for (n = 0; n < N_MAG; n++)
@@ -298,8 +247,8 @@ void calculate_magnetization()
             // Realizamos los pasos de Monte Carlo
             for (j = 0; j <= 1000000; j++)
             {
-                randn = rand() % N_MAG;
-                randm = rand() % N_MAG;
+                randn = rand_r(&seed) % N_MAG;
+                randm = rand_r(&seed) % N_MAG;
 
                 // Calcular el cambio de energía deltaE con condiciones de frontera periódicas
                 int up = (randn == 0) ? N_MAG - 1 : randn - 1;
@@ -312,32 +261,45 @@ void calculate_magnetization()
                 p = std::min(1.0, exp((-deltaE) / T_m[i]));
 
                 // Generar número aleatorio y decidir si aceptar el flip
-                dseta = random_double();
+                dseta = thread_random_double(seed);
                 if (dseta < p)
                 {
                     sN[randn][randm] = -sN[randn][randm];
                 }
             }
 
-            // Calculamos una única vez las sumas parciales para 16x16, 32x32 y 64x64
-            mN16 = 0;
-            mN32 = 0;
-            mN64 = 0;
-            for (j = 0; j < N_MAG; ++j)
+            // Para N = 16
+            for (j = 0; j < 16; j++)
             {
-                for (k = 0; k < N_MAG; ++k)
+                for (k = 0; k < 16; k++)
                 {
-                    int s = sN[j][k];
-                    mN64 += s;
-                    if (j < 32 && k < 32)
-                        mN32 += s;
-                    if (j < 16 && k < 16)
-                        mN16 += s;
+                    mN16 += sN[j][k];
                 }
             }
-            medidas16[rep] = (fabs(mN16) / (16 * 16)) / 10000;
-            medidas32[rep] = (fabs(mN32) / (32 * 32)) / 10000;
-            medidas64[rep] = (fabs(mN64) / (64 * 64)) / 10000;
+            mN16 = (fabs(mN16) / (16 * 16)) / 10000;
+            medidas16[rep] = mN16; // Guardamos la medición
+
+            // Para N = 32
+            for (j = 0; j < 32; j++)
+            {
+                for (k = 0; k < 32; k++)
+                {
+                    mN32 += sN[j][k];
+                }
+            }
+            mN32 = (fabs(mN32) / (32 * 32)) / 10000;
+            medidas32[rep] = mN32; // Guardamos la medición
+
+            // Para N = 64
+            for (j = 0; j < 64; j++)
+            {
+                for (k = 0; k < 64; k++)
+                {
+                    mN64 += sN[j][k];
+                }
+            }
+            mN64 = (fabs(mN64) / (64 * 64)) / 10000;
+            medidas64[rep] = mN64; // Guardamos la medición
         }
 
         // Llamamos a nuestra nueva función para calcular las medias y los errores
@@ -395,10 +357,23 @@ int main()
         }
     }
 
-    for (int step = 0; step < mc_steps; ++step) 
+    for (int step = 0; step < mc_steps; ++step)
     {
-        metropolis_sweep(sord, sord_next, T_low);
-        metropolis_sweep(sdesord, sdesord_next, T_low);
+        // Ejecutar las dos configuraciones en paralelo (secciones independientes)
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            {
+                unsigned int seed = (unsigned int)semilla ^ (unsigned int)step ^ (unsigned int)(omp_get_thread_num()+1);
+                metropolis_sweep(sord, sord_next, T_low, seed);
+            }
+            #pragma omp section
+            {
+                unsigned int seed = (unsigned int)semilla ^ (unsigned int)step ^ (unsigned int)(omp_get_thread_num()+123);
+                metropolis_sweep(sdesord, sdesord_next, T_low, seed);
+            }
+        }
+
         write_lattice(ford1, sord);
         write_lattice(fdesord1, sdesord);
     }
@@ -443,8 +418,20 @@ int main()
 
     for (int step = 0; step < mc_steps; ++step)
     {
-        metropolis_sweep(sord, sord_next, T_high);
-        metropolis_sweep(sdesord, sdesord_next, T_high);
+        #pragma omp parallel sections
+        {
+            #pragma omp section
+            {
+                unsigned int seed = (unsigned int)semilla ^ (unsigned int)step ^ (unsigned int)(omp_get_thread_num()+5);
+                metropolis_sweep(sord, sord_next, T_high, seed);
+            }
+            #pragma omp section
+            {
+                unsigned int seed = (unsigned int)semilla ^ (unsigned int)step ^ (unsigned int)(omp_get_thread_num()+55);
+                metropolis_sweep(sdesord, sdesord_next, T_high, seed);
+            }
+        }
+
         write_lattice(ford2, sord);
         write_lattice(fdesord2, sdesord);
     }
