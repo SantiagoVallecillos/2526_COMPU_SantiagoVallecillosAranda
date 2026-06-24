@@ -13,6 +13,13 @@ static int sdesord[N][N];
 static int sord_next[N][N];
 static int sdesord_next[N][N];
 
+// === FORWARD DECLARATIONS ===
+void export_density_profile(FILE* file, const int spins[N][N], int L, double T);
+int delta_energy_swap_L(const int spins[64][64], int n1, int m1, int n2, int m2, int L);
+int total_energy_L(const int spins[64][64], int L);
+void select_neighbor_bc(int n, int m, int L, int& n2, int& m2);
+void copy_lattice(const int src[64][64], int dst[64][64], int L);
+
 // ---------------------------------------------------------
 // NUEVA FUNCIÓN: Cálculo de errores estadísticos (Montecarlo)
 // ---------------------------------------------------------
@@ -57,37 +64,51 @@ int delta_energy(const int spins[N][N], int n, int m)
 }
 
 // Calcula el cambio de energía al intercambiar dos espines en (n1,m1) y (n2,m2)
-int delta_energy_swap(const int spins[N][N], int n1, int m1, int n2, int m2)
+// Versión parametrizada por tamaño L
+int delta_energy_swap_L(const int spins[64][64], int n1, int m1, int n2, int m2, int L)
 {
     if (n1 == n2 && m1 == m2) return 0;
 
-    int up1 = spins[(n1 + 1) % N][m1];
-    int down1 = spins[(n1 - 1 + N) % N][m1];
-    int right1 = spins[n1][(m1 + 1) % N];
-    int left1 = spins[n1][(m1 - 1 + N) % N];
+    int up1 = spins[(n1 + 1) % L][m1];
+    int down1 = spins[(n1 - 1 + L) % L][m1];
+    int right1 = spins[n1][(m1 + 1) % L];
+    int left1 = spins[n1][(m1 - 1 + L) % L];
     int sum1 = up1 + down1 + right1 + left1;
 
-    int up2 = spins[(n2 + 1) % N][m2];
-    int down2 = spins[(n2 - 1 + N) % N][m2];
-    int right2 = spins[n2][(m2 + 1) % N];
-    int left2 = spins[n2][(m2 - 1 + N) % N];
+    int up2 = spins[(n2 + 1) % L][m2];
+    int down2 = spins[(n2 - 1 + L) % L][m2];
+    int right2 = spins[n2][(m2 + 1) % L];
+    int left2 = spins[n2][(m2 - 1 + L) % L];
     int sum2 = up2 + down2 + right2 + left2;
 
     return (spins[n1][m1] - spins[n2][m2]) * (sum1 - sum2);
 }
 
-//Calcula la energia total del sistema en cada configuracion "a lo bruto"
-int total_energy(const int spins[N][N])
+// Versión para matriz de tamaño fijo N (para mantener compatibilidad con código existente)
+int delta_energy_swap(const int spins[N][N], int n1, int m1, int n2, int m2)
+{
+    return delta_energy_swap_L((const int (*)[64])spins, n1, m1, n2, m2, N);
+}
+
+// Calcula la energia total del sistema en cada configuracion "a lo bruto"
+// Versión parametrizada por tamaño L
+int total_energy_L(const int spins[64][64], int L)
 {
     int energy = 0;
-    for (int i = 0; i < N; ++i)
+    for (int i = 0; i < L; ++i)
     {
-        for (int j = 0; j < N; ++j)
+        for (int j = 0; j < L; ++j)
         {
-            energy+= -spins[i][j]*(spins[(i + 1) % N][j] + spins[(i - 1 + N) % N][j] + spins[i][(j + 1) % N] + spins[i][(j - 1 + N) % N]);
+            energy += -spins[i][j] * (spins[(i + 1) % L][j] + spins[(i - 1 + L) % L][j] + spins[i][(j + 1) % L] + spins[i][(j - 1 + L) % L]);
         }
     }
     return energy / 2; // Dividimos por 2 para evitar contar cada interacción dos veces
+}
+
+// Versión para matriz de tamaño fijo N (para mantener compatibilidad)
+int total_energy(const int spins[N][N])
+{
+    return total_energy_L((const int (*)[64])spins, N);
 }
 
 // Inicializa la configuración ordenada (todos los espines +1)
@@ -125,6 +146,99 @@ void initialize_disordered_bc(int spins[N][N])
                 spins[n][m] = 1; // Bordes fijos en el eje X
             else
                 spins[n][m] = (random_double() <= 0.5) ? 1 : -1;
+        }
+    }
+}
+
+// Copia una submatriz de tamaño L x L de src a dst
+void copy_lattice(const int src[64][64], int dst[64][64], int L)
+{
+    for (int n = 0; n < L; ++n)
+    {
+        for (int m = 0; m < L; ++m)
+        {
+            dst[n][m] = src[n][m];
+        }
+    }
+}
+
+// Selecciona un vecino válido con condiciones de contorno fijas en los bordes X
+// Retorna las coordenadas en n2 y m2
+void select_neighbor_bc(int n, int m, int L, int& n2, int& m2)
+{
+    int candidates[4][2];
+    int count = 0;
+
+    // Vecino derecha, solo si no es borde fijo
+    if (n + 1 != L - 1)
+    {
+        candidates[count][0] = n + 1;
+        candidates[count][1] = m;
+        count++;
+    }
+
+    // Vecino izquierda, solo si no es borde fijo
+    if (n - 1 != 0)
+    {
+        candidates[count][0] = n - 1;
+        candidates[count][1] = m;
+        count++;
+    }
+
+    // Vecino arriba
+    candidates[count][0] = n;
+    candidates[count][1] = (m + 1) % L;
+    count++;
+
+    // Vecino abajo
+    candidates[count][0] = n;
+    candidates[count][1] = (m - 1 + L) % L;
+    count++;
+
+    int choice = rand() % count;
+    n2 = candidates[choice][0];
+    m2 = candidates[choice][1];
+}
+
+// ----------------------------------------------------------------------------------
+// NUEVA FUNCIÓN: Inicialización desordenada para una magnetización fija m0 (Kawasaki)
+// ----------------------------------------------------------------------------------
+void initialize_kawasaki_m0(int spins[64][64], double m0, int L)
+{
+    // 1. Inicializamos toda la submatriz útil de tamaño L x L con espines -1.
+    // Esto limpia el sistema y establece el estado base antes de añadir los espines +1.
+    for (int n = 0; n < L; ++n)
+    {
+        for (int m = 0; m < L; ++m)
+        {
+            if (n < 64 && m < 64)  // Verificación de seguridad
+                spins[n][m] = -1;
+        }
+    }
+
+    // 2. Relación teórica entre magnetización por partícula (m0) y la fracción 'x' de espines +1:
+    // m0 = (N_plus - N_minus) / (L*L)
+    // Sabiendo que N_plus + N_minus = L*L, llegamos a que la fracción es x = (1 + m0) / 2.
+    double x = (1.0 + m0) / 2.0;
+    int total_spins = L * L;
+    
+    // Calculamos el número exacto de espines +1 necesarios.
+    // Usamos round() de <cmath> para aproximar al entero más cercano debido a la discretización de la red.
+    int count_plus_needed = static_cast<int>(round(x * total_spins));
+
+    // 3. Distribuimos aleatoriamente los espines +1 calculados en la red.
+    // Se utiliza el mismo algoritmo de muestreo por rechazo que implementaste en calculate_magnetization().
+    int count_ones = 0;
+    while (count_ones < count_plus_needed)
+    {
+        int rn = rand() % L;
+        int rm = rand() % L;
+        
+        // Si la posición elegida al azar contiene un -1, la cambiamos a +1
+        if (spins[rn][rm] == -1)
+        {
+            spins[rn][rm] = 1;
+            count_ones++; // Incrementamos el contador solo si se ha modificado un espín de forma efectiva
         }
     }
 }
@@ -278,40 +392,6 @@ void calculate_magnetization()
     // Número de experimentos independientes por temperatura para sacar estadísticas
     const int N_experimentos = 10;
 
-    auto delta_energy_swap_local = [&](const int spins[N_MAG][N_MAG], int n1, int m1, int n2, int m2, int L)
-    {
-        if (n1 == n2 && m1 == m2) return 0;
-
-        int up1 = spins[(n1 + 1) % L][m1];
-        int down1 = spins[(n1 - 1 + L) % L][m1];
-        int right1 = spins[n1][(m1 + 1) % L];
-        int left1 = spins[n1][(m1 - 1 + L) % L];
-        int sum1 = up1 + down1 + right1 + left1;
-
-        int up2 = spins[(n2 + 1) % L][m2];
-        int down2 = spins[(n2 - 1 + L) % L][m2];
-        int right2 = spins[n2][(m2 + 1) % L];
-        int left2 = spins[n2][(m2 - 1 + L) % L];
-        int sum2 = up2 + down2 + right2 + left2;
-
-        return (spins[n1][m1] - spins[n2][m2]) * (sum1 - sum2);
-    };
-
-    // === CAMBIO 2: Nueva función lambda para la energía total local ===
-    // Por qué: Evita calcular la energía leyendo las zonas "basura" de la matriz matriz de 64x64 cuando simulamos L=16 o L=32.
-    auto total_energy_local = [&](const int spins[N_MAG][N_MAG], int L)
-    {
-        int energy = 0;
-        for (int i = 0; i < L; ++i)
-        {
-            for (int j = 0; j < L; ++j)
-            {
-                energy += -spins[i][j] * (spins[(i + 1) % L][j] + spins[(i - 1 + L) % L][j] + spins[i][(j + 1) % L] + spins[i][(j - 1 + L) % L]);
-            }
-        }
-        return energy / 2; 
-    };
-
     int sizes[3] = {16, 32, 64};
     FILE *files[3] = {mag16, mag32, mag64};
 
@@ -372,7 +452,7 @@ void calculate_magnetization()
                 int numero_medidas = 0; // Para promediar al final de la repetición
                 
                 // Calculamos la energía base SOLO UNA VEZ por repetición (Rendimiento O(1) en el bucle)
-                double energia_actual = total_energy_local(sN, L);
+                double energia_actual = total_energy_L(sN, L);
 
                 for (int step = 0; step < mc_steps; ++step)
                 {
@@ -381,36 +461,10 @@ void calculate_magnetization()
                         int n = 1 + rand() % (L - 2);
                         int m = rand() % L;
 
-                        int candidates[4][2];
-                        int count = 0;
+                        int n2, m2;
+                        select_neighbor_bc(n, m, L, n2, m2);
 
-                        if (n + 1 != L - 1)
-                        {
-                            candidates[count][0] = n + 1;
-                            candidates[count][1] = m;
-                            count++;
-                        }
-
-                        if (n - 1 != 0)
-                        {
-                            candidates[count][0] = n - 1;
-                            candidates[count][1] = m;
-                            count++;
-                        }
-
-                        candidates[count][0] = n;
-                        candidates[count][1] = (m + 1) % L;
-                        count++;
-
-                        candidates[count][0] = n;
-                        candidates[count][1] = (m - 1 + L) % L;
-                        count++;
-
-                        int choice = rand() % count;
-                        int n2 = candidates[choice][0];
-                        int m2 = candidates[choice][1];
-
-                        int dE = delta_energy_swap_local(sN, n, m, n2, m2, L);
+                        int dE = delta_energy_swap_L(sN, n, m, n2, m2, L);
                         double p = min(1.0, exp(-dE / T_m[i]));
                         if (random_double() < p)
                         {
@@ -437,36 +491,10 @@ void calculate_magnetization()
                         int n = 1 + rand() % (L - 2);
                         int m = rand() % L;
 
-                        int candidates[4][2];
-                        int count = 0;
+                        int n2, m2;
+                        select_neighbor_bc(n, m, L, n2, m2);
 
-                        if (n + 1 != L - 1)
-                        {
-                            candidates[count][0] = n + 1;
-                            candidates[count][1] = m;
-                            count++;
-                        }
-
-                        if (n - 1 != 0)
-                        {
-                            candidates[count][0] = n - 1;
-                            candidates[count][1] = m;
-                            count++;
-                        }
-
-                        candidates[count][0] = n;
-                        candidates[count][1] = (m + 1) % L;
-                        count++;
-
-                        candidates[count][0] = n;
-                        candidates[count][1] = (m - 1 + L) % L;
-                        count++;
-
-                        int choice = rand() % count;
-                        int n2 = candidates[choice][0];
-                        int m2 = candidates[choice][1];
-
-                        int dE = delta_energy_swap_local(sN, n, m, n2, m2, L);
+                        int dE = delta_energy_swap_L(sN, n, m, n2, m2, L);
                         double p = min(1.0, exp(-dE / T_m[i]));
                         if (random_double() < p)
                         {
@@ -520,8 +548,8 @@ void calculate_magnetization()
                 // para tener una "foto" representativa del estado del sistema a esta temperatura.
                 if (rep == N_experimentos - 1)
                 {
-                    // casteamos sN a const int (*)[N] para que coincida con la firma de la función
-                    export_density_profile(files_prof[s_idx], (const int (*)[N])sN, L, T_m[i]);
+                    // casteamos sN a const int (*)[N_MAG] para que coincida con la firma de la función
+                    export_density_profile(files_prof[s_idx], (const int (*)[N_MAG])sN, L, T_m[i]);
                 }
             }
 
@@ -611,6 +639,202 @@ void export_density_profile(FILE* file, const int spins[N][N], int L, double T)
     // Dejamos una línea en blanco al terminar la matriz. 
     // Esto es muy útil en Gnuplot para separar los datos de distintas temperaturas.
     fprintf(file, "\n"); 
+}
+
+// -------------------------------------------------------------------------
+// NUEVA FUNCIÓN: Calcula magnetización para m0 distinto de cero
+// -------------------------------------------------------------------------
+void calculate_magnetization_m0(double m0)
+{
+    #define N_MAG 64
+    int sN[N_MAG][N_MAG];
+    constexpr int N_TEMPS = 10;
+    const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
+    int i, j, k, n, m;
+
+    // Abrimos archivos con sufijo _m0 para no sobreescribir los datos de m0=0
+    FILE *mag16 = fopen("magn16_m0.txt", "w");
+    FILE *mag32 = fopen("magn32_m0.txt", "w");
+    FILE *mag64 = fopen("magn64_m0.txt", "w");
+    FILE *prof16 = fopen("perfil16_m0.txt", "w");
+    FILE *prof32 = fopen("perfil32_m0.txt", "w");
+    FILE *prof64 = fopen("perfil64_m0.txt", "w");
+    
+    FILE *files[3] = {mag16, mag32, mag64};
+    FILE *files_prof[3] = {prof16, prof32, prof64};
+
+    if (!mag16 || !mag32 || !mag64)
+    {
+        std::cerr << "Error abriendo archivos de magnetización m0." << std::endl;
+        return;
+    }
+
+    const int N_experimentos = 10;
+
+    int sizes[3] = {16, 32, 64};
+
+    // Calculamos la fracción teórica x
+    double x_frac = (1.0 + m0) / 2.0;
+
+    for (i = 0; i < N_TEMPS; i++)
+    {
+        for (int s_idx = 0; s_idx < 3; ++s_idx) 
+        {
+            int L = sizes[s_idx];
+            
+            // === CAMBIO: Índice de corte calculado con la fracción x ===
+            int L_split = static_cast<int>(round(x_frac * L)); 
+            
+            std::vector<double> medidas_M(N_experimentos);
+            std::vector<double> medidas_E(N_experimentos);
+            std::vector<double> medidas_E2(N_experimentos);
+            std::vector<double> medidas_M2(N_experimentos);
+
+            for (int rep = 0; rep < N_experimentos; ++rep)
+            {
+                // === CAMBIO: Usamos tu nueva función de inicialización ===
+                // El cast a (int(*)[N_MAG]) es necesario para que el compilador acepte sN
+                initialize_kawasaki_m0((int (*)[N_MAG])sN, m0, L);
+
+                int sN_next[N_MAG][N_MAG];
+                copy_lattice(sN, sN_next, L);
+
+                const int total_mc_trials = 1000000;
+                int mc_steps = total_mc_trials / (L * L);
+                int extra_trials = total_mc_trials % (L * L);
+
+                double suma_E = 0.0;
+                double suma_E2 = 0.0;
+                int numero_medidas = 0; 
+                
+                double energia_actual = total_energy_L(sN, L);
+
+                for (int step = 0; step < mc_steps; ++step)
+                {
+                    for (int trial = 0; trial < L * L; ++trial)
+                    {
+                        int n = 1 + rand() % (L - 2);
+                        int m = rand() % L;
+
+                        int n2, m2;
+                        select_neighbor_bc(n, m, L, n2, m2);
+
+                        int dE = delta_energy_swap_L(sN, n, m, n2, m2, L);
+                        double p = min(1.0, exp(-dE / T_m[i]));
+                        if (random_double() < p)
+                        {
+                            int temp = sN[n][m];
+                            sN[n][m] = sN[n2][m2];
+                            sN[n2][m2] = temp;
+                            sN_next[n][m] = sN[n][m];
+                            sN_next[n2][m2] = sN[n2][m2];
+                            
+                            energia_actual += dE;
+                        }
+                    }
+                    suma_E += energia_actual;
+                    suma_E2 += (energia_actual * energia_actual);
+                    numero_medidas++;
+                }
+
+                if (extra_trials > 0)
+                {
+                    for (j = 0; j < extra_trials; ++j)
+                    {
+                        int n = 1 + rand() % (L - 2);
+                        int m = rand() % L;
+
+                        int n2, m2;
+                        select_neighbor_bc(n, m, L, n2, m2);
+
+                        int dE = delta_energy_swap_L(sN, n, m, n2, m2, L);
+                        double p = min(1.0, exp(-dE / T_m[i]));
+                        if (random_double() < p)
+                        {
+                            int temp = sN[n][m];
+                            sN[n][m] = sN[n2][m2];
+                            sN[n2][m2] = temp;
+                            sN_next[n][m] = sN[n][m];
+                            sN_next[n2][m2] = sN[n2][m2];
+                            
+                            energia_actual += dE;
+                        }
+                    }
+                    suma_E += energia_actual;
+                    suma_E2 += (energia_actual * energia_actual);
+                    numero_medidas++;
+                }
+
+                // === CAMBIO: División asimétrica de los dominios ===
+                double m_domain1 = 0.0;
+                double m_domain2 = 0.0;
+
+                for (j = 0; j < L; ++j)
+                {
+                    for (k = 0; k < L; ++k)
+                    {
+                        // Cortamos por el índice calculado
+                        if (k < L_split) 
+                        {
+                            m_domain1 += sN[j][k];
+                        } 
+                        else 
+                        {
+                            m_domain2 += sN[j][k];
+                        }
+                    }
+                }
+                
+                double particles_1 = L_split * L;
+                double particles_2 = (L - L_split) * L;
+                
+                // Extraemos magnetización de cada dominio asegurándonos de que haya partículas (para evitar 0/0)
+                double mag_1 = (particles_1 > 0) ? (fabs(m_domain1) / particles_1) : 0.0;
+                double mag_2 = (particles_2 > 0) ? (fabs(m_domain2) / particles_2) : 0.0;
+                
+                // Promediamos
+                double mag_domain;
+                if (particles_1 == 0) mag_domain = mag_2;
+                else if (particles_2 == 0) mag_domain = mag_1;
+                else mag_domain = (mag_1 + mag_2) / 2.0;
+                
+                double num_particulas = L * L;
+                
+                medidas_M[rep] = mag_domain; 
+                medidas_M2[rep] = (mag_domain * mag_domain);
+                medidas_E[rep] = (suma_E / numero_medidas) / num_particulas;
+                medidas_E2[rep] = (suma_E2 / numero_medidas) / (num_particulas * num_particulas);
+                
+                if (rep == N_experimentos - 1)
+                {
+                    export_density_profile(files_prof[s_idx], (const int (*)[N_MAG])sN, L, T_m[i]);
+                }
+            }
+
+            double media_M, err_M;
+            calcular_error_montecarlo(medidas_M, media_M, err_M);
+            
+            double media_M2, err_M2;
+            calcular_error_montecarlo(medidas_M2, media_M2, err_M2);
+            
+            double media_E, err_E;
+            calcular_error_montecarlo(medidas_E, media_E, err_E);
+            
+            double media_E2, err_E2;
+            calcular_error_montecarlo(medidas_E2, media_E2, err_E2);
+
+            double num_particulas = L * L;
+            double T = T_m[i];
+            
+            double c_N = (num_particulas / (T * T)) * (media_E2 - (media_E * media_E));
+            double chi_N = (num_particulas / T) * (media_M2 - (media_M * media_M));
+
+            fprintf(files[s_idx], "%lf\t%e\t%e\t%e\t%e\t%e\t%e\n", T_m[i], media_M, err_M, media_E, err_E, c_N, chi_N);
+        }
+    }
+
+    fclose(mag16); fclose(mag32); fclose(mag64);
+    fclose(prof16); fclose(prof32); fclose(prof64);
 }
 
 int main()
