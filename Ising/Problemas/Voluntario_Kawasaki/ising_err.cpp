@@ -1,9 +1,10 @@
 #include <iostream>
 #include <cmath>
+#include <chrono>
 #include <cstdlib>
 #include <vector> // Necesario para almacenar las mediciones
 
-#define N 64            // Tamaño de las matrices
+#define N 128            // Tamaño de las matrices
 #define TOTAL_TRIALS 100000000
 
 using namespace std;
@@ -15,10 +16,10 @@ static int sdesord_next[N][N];
 
 // === FORWARD DECLARATIONS ===
 void export_density_profile(FILE* file, const int spins[N][N], int L, double T);
-int delta_energy_swap_L(const int spins[64][64], int n1, int m1, int n2, int m2, int L);
-int total_energy_L(const int spins[64][64], int L);
+int delta_energy_swap_L(const int spins[128][128], int n1, int m1, int n2, int m2, int L);
+int total_energy_L(const int spins[128][128], int L);
 void select_neighbor_bc(int n, int m, int L, int& n2, int& m2);
-void copy_lattice(const int src[64][64], int dst[64][64], int L);
+void copy_lattice(const int src[128][128], int dst[128][128], int L);
 
 // ---------------------------------------------------------
 // NUEVA FUNCIÓN: Cálculo de errores estadísticos (Montecarlo)
@@ -65,7 +66,7 @@ int delta_energy(const int spins[N][N], int n, int m)
 
 // Calcula el cambio de energía al intercambiar dos espines en (n1,m1) y (n2,m2)
 // Versión parametrizada por tamaño L
-int delta_energy_swap_L(const int spins[64][64], int n1, int m1, int n2, int m2, int L)
+int delta_energy_swap_L(const int spins[128][128], int n1, int m1, int n2, int m2, int L)
 {
     if (n1 == n2 && m1 == m2) return 0;
 
@@ -87,12 +88,12 @@ int delta_energy_swap_L(const int spins[64][64], int n1, int m1, int n2, int m2,
 // Versión para matriz de tamaño fijo N (para mantener compatibilidad con código existente)
 int delta_energy_swap(const int spins[N][N], int n1, int m1, int n2, int m2)
 {
-    return delta_energy_swap_L((const int (*)[64])spins, n1, m1, n2, m2, N);
+    return delta_energy_swap_L((const int (*)[128])spins, n1, m1, n2, m2, N);
 }
 
 // Calcula la energia total del sistema en cada configuracion "a lo bruto"
 // Versión parametrizada por tamaño L
-int total_energy_L(const int spins[64][64], int L)
+int total_energy_L(const int spins[128][128], int L)
 {
     int energy = 0;
     for (int i = 0; i < L; ++i)
@@ -108,7 +109,7 @@ int total_energy_L(const int spins[64][64], int L)
 // Versión para matriz de tamaño fijo N (para mantener compatibilidad)
 int total_energy(const int spins[N][N])
 {
-    return total_energy_L((const int (*)[64])spins, N);
+    return total_energy_L((const int (*)[128])spins, N);
 }
 
 // Inicializa la configuración ordenada (todos los espines +1)
@@ -151,7 +152,7 @@ void initialize_disordered_bc(int spins[N][N])
 }
 
 // Copia una submatriz de tamaño L x L de src a dst
-void copy_lattice(const int src[64][64], int dst[64][64], int L)
+void copy_lattice(const int src[128][128], int dst[128][128], int L)
 {
     for (int n = 0; n < L; ++n)
     {
@@ -203,7 +204,7 @@ void select_neighbor_bc(int n, int m, int L, int& n2, int& m2)
 // ----------------------------------------------------------------------------------
 // NUEVA FUNCIÓN: Inicialización desordenada para una magnetización fija m0 (Kawasaki)
 // ----------------------------------------------------------------------------------
-void initialize_kawasaki_m0(int spins[64][64], double m0, int L)
+void initialize_kawasaki_m0(int spins[128][128], double m0, int L)
 {
     // 1. Inicializamos toda la submatriz útil de tamaño L x L con espines -1.
     // Esto limpia el sistema y establece el estado base antes de añadir los espines +1.
@@ -211,7 +212,7 @@ void initialize_kawasaki_m0(int spins[64][64], double m0, int L)
     {
         for (int m = 0; m < L; ++m)
         {
-            if (n < 64 && m < 64)  // Verificación de seguridad
+            if (n < 128 && m < 128)  // Verificación de seguridad
                 spins[n][m] = -1;
         }
     }
@@ -365,7 +366,7 @@ void metropolis_sweep_bc(int spins[N][N], int spins_next[N][N], double T)
 // Calcula y almacena las curvas de magnetización para diferentes temperaturas
 void calculate_magnetization()
 {
-    #define N_MAG 64
+    #define N_MAG 128
     int sN[N_MAG][N_MAG];
     constexpr int N_TEMPS = 10;
     const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
@@ -375,15 +376,15 @@ void calculate_magnetization()
     // Por qué: Deben inicializarse por separado para cada repetición y tamaño, 
     // así que usaremos vectores dentro del bucle como propusiste.
 
-    FILE *mag16 = fopen("magn16.txt", "w");
     FILE *mag32 = fopen("magn32.txt", "w");
     FILE *mag64 = fopen("magn64.txt", "w");
-    FILE *prof16 = fopen("perfil16.txt", "w");
+    FILE *mag128 = fopen("magn128.txt", "w");
     FILE *prof32 = fopen("perfil32.txt", "w");
     FILE *prof64 = fopen("perfil64.txt", "w");
-    FILE *files_prof[3] = {prof16, prof32, prof64};
+    FILE *prof128 = fopen("perfil128.txt", "w");
+    FILE *files_prof[3] = {prof32, prof64, prof128};
 
-    if (!mag16 || !mag32 || !mag64)
+    if (!mag32 || !mag64 || !mag128)
     {
         std::cerr << "Error abriendo archivos de magnetización." << std::endl;
         return;
@@ -392,8 +393,8 @@ void calculate_magnetization()
     // Número de experimentos independientes por temperatura para sacar estadísticas
     const int N_experimentos = 10;
 
-    int sizes[3] = {16, 32, 64};
-    FILE *files[3] = {mag16, mag32, mag64};
+    int sizes[3] = {32, 64, 128};
+    FILE *files[3] = {mag32, mag64, mag128};
 
     // Hacemos los cálculos de la magnetización
     for (i = 0; i < N_TEMPS; i++)
@@ -581,15 +582,15 @@ void calculate_magnetization()
         }
     }
 
-    fclose(mag16);
     fclose(mag32);
     fclose(mag64);
+    fclose(mag128);
 }
 
 // ---------------------------------------------------------
 // NUEVA FUNCIÓN: Conteo global de espines (+1 y -1)
 // ---------------------------------------------------------
-void export_global_spin_count(FILE* file, const int spins[64][64], int L, double T)
+void export_global_spin_count(FILE* file, const int spins[128][128], int L, double T)
 {
     int count_plus = 0;
     int count_minus = 0;
@@ -646,24 +647,24 @@ void export_density_profile(FILE* file, const int spins[N][N], int L, double T)
 // -------------------------------------------------------------------------
 void calculate_magnetization_m0(double m0)
 {
-    #define N_MAG 64
+    #define N_MAG 128
     int sN[N_MAG][N_MAG];
     constexpr int N_TEMPS = 10;
     const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
     int i, j, k, n, m;
 
     // Abrimos archivos con sufijo _m0 para no sobreescribir los datos de m0=0
-    FILE *mag16 = fopen("magn16_m0.txt", "w");
     FILE *mag32 = fopen("magn32_m0.txt", "w");
     FILE *mag64 = fopen("magn64_m0.txt", "w");
-    FILE *prof16 = fopen("perfil16_m0.txt", "w");
+    FILE *mag128 = fopen("magn128_m0.txt", "w");
     FILE *prof32 = fopen("perfil32_m0.txt", "w");
     FILE *prof64 = fopen("perfil64_m0.txt", "w");
+    FILE *prof128 = fopen("perfil128_m0.txt", "w");
     
-    FILE *files[3] = {mag16, mag32, mag64};
-    FILE *files_prof[3] = {prof16, prof32, prof64};
+    FILE *files[3] = {mag32, mag64, mag128};
+    FILE *files_prof[3] = {prof32, prof64, prof128};
 
-    if (!mag16 || !mag32 || !mag64)
+    if (!mag32 || !mag64 || !mag128)
     {
         std::cerr << "Error abriendo archivos de magnetización m0." << std::endl;
         return;
@@ -671,7 +672,7 @@ void calculate_magnetization_m0(double m0)
 
     const int N_experimentos = 10;
 
-    int sizes[3] = {16, 32, 64};
+    int sizes[3] = {32, 64, 128};
 
     // Calculamos la fracción teórica x
     double x_frac = (1.0 + m0) / 2.0;
@@ -833,263 +834,205 @@ void calculate_magnetization_m0(double m0)
         }
     }
 
-    fclose(mag16); fclose(mag32); fclose(mag64);
-    fclose(prof16); fclose(prof32); fclose(prof64);
+    fclose(mag32); fclose(mag64); fclose(mag128);
+    fclose(prof32); fclose(prof64); fclose(prof128);
 }
 
 int main()
 {
+    auto inicio = chrono::high_resolution_clock::now();
     int semilla = 310809;
     srand(semilla);
 
+    std::cout << "Iniciando simulacion del modelo de Ising (Dinamica de Kawasaki)..." << std::endl;
+
+    // =====================================================================================
+    // TAREA 1: Simular la dinámica y obtener fotogramas para diferentes temperaturas
+    // =====================================================================================
+    std::cout << "\n[1/3] Realizando Tarea 1: Generando fotogramas de la red..." << std::endl;
+    
     double T_low = 1.0;
     double T_high = 3.5;
 
-    FILE *ford1 = fopen("ising_1_data.dat", "w");
-    FILE *ford2 = fopen("ising_2_data.dat", "w");
-    FILE *fdesord1 = fopen("ising_desord1_data.dat", "w");
-    FILE *fdesord2 = fopen("ising_desord2_data.dat", "w");
-
-    if (!ford1 || !ford2 || !fdesord1 || !fdesord2)
-    {
-        std::cerr << "Error abriendo archivos de salida." << std::endl;
-        return 1;
-    }
-
     int mc_steps = TOTAL_TRIALS / (N * N);
     int extra_trials = TOTAL_TRIALS % (N * N);
+    int max_writes = std::max(1, mc_steps / 10);
+    const int energy_threshold = N * 2;
 
-    // Primera fase: T baja
+    // -------------------------------------------------------------------------------------
+    // CASO A: T_baja y T_alta con CONDICIONES PERIÓDICAS EN AMBOS EJES
+    // -------------------------------------------------------------------------------------
+    std::cout << "      -> Simulando con Condiciones Periodicas..." << std::endl;
+    
+    FILE *f_per_ord_low = fopen("ising_per_ord_low.dat", "w");
+    FILE *f_per_des_low = fopen("ising_per_des_low.dat", "w");
+    FILE *f_per_ord_high = fopen("ising_per_ord_high.dat", "w");
+    FILE *f_per_des_high = fopen("ising_per_des_high.dat", "w");
+
+    if (!f_per_ord_low || !f_per_des_low || !f_per_ord_high || !f_per_des_high) {
+        std::cerr << "Error abriendo archivos para condiciones periodicas." << std::endl; return 1;
+    }
+
+    // Inicializamos: Ordenada para T_low/T_high, Desordenada para T_low/T_high
     initialize_ordered(sord);
-    initialize_disordered_bc(sdesord);
-    write_lattice(ford1, sord);
-    write_lattice(fdesord1, sdesord);
-
-    int last_energy_sord_low = total_energy(sord);
-    int last_energy_sdesord_low = total_energy(sdesord);
-    int writes_sord_low = 0;
-    int writes_sdesord_low = 0;
-    int max_writes_low = std::max(1, mc_steps / 10);
-    const int energy_threshold_low = N * 2;
-
-    //Igualamos las matrices de espines "next" a las actuales para que la función metropolis_sweep funcione correctamente
-    for (int n = 0; n < N; ++n)
-    {
-        for (int m = 0; m < N; ++m)
-        {
+    initialize_disordered(sdesord);
+    
+    // Copiamos a las matrices "next"
+    for (int n = 0; n < N; ++n) {
+        for (int m = 0; m < N; ++m) {
             sord_next[n][m] = sord[n][m];
             sdesord_next[n][m] = sdesord[n][m];
         }
     }
 
-    for (int step = 0; step < mc_steps; ++step) 
-    {
+    int last_E_ord = total_energy(sord);
+    int last_E_des = total_energy(sdesord);
+    int writes_ord = 0, writes_des = 0;
+
+    // Bucle Montecarlo (Usando metropolis_sweep normal) para T_baja
+    for (int step = 0; step < mc_steps; ++step) {
+        metropolis_sweep(sord, sord_next, T_low);
+        metropolis_sweep(sdesord, sdesord_next, T_low);
+
+        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+            write_lattice(f_per_ord_low, sord);
+            last_E_ord = total_energy(sord); writes_ord++;
+        }
+        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
+            write_lattice(f_per_des_low, sdesord);
+            last_E_des = total_energy(sdesord); writes_des++;
+        }
+    }
+
+    // Reiniciamos matrices para probar T_alta con Periódicas
+    initialize_ordered(sord);
+    initialize_disordered(sdesord);
+    for (int n = 0; n < N; ++n) {
+        for (int m = 0; m < N; ++m) {
+            sord_next[n][m] = sord[n][m];
+            sdesord_next[n][m] = sdesord[n][m];
+        }
+    }
+    
+    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
+    writes_ord = 0; writes_des = 0;
+
+    // Bucle Montecarlo (Usando metropolis_sweep normal) para T_alta
+    for (int step = 0; step < mc_steps; ++step) {
+        metropolis_sweep(sord, sord_next, T_high);
+        metropolis_sweep(sdesord, sdesord_next, T_high);
+
+        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+            write_lattice(f_per_ord_high, sord);
+            last_E_ord = total_energy(sord); writes_ord++;
+        }
+        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
+            write_lattice(f_per_des_high, sdesord);
+            last_E_des = total_energy(sdesord); writes_des++;
+        }
+    }
+
+    fclose(f_per_ord_low); fclose(f_per_des_low);
+    fclose(f_per_ord_high); fclose(f_per_des_high);
+
+
+    // -------------------------------------------------------------------------------------
+    // CASO B: T_baja y T_alta con BORDES FIJOS EN X (Para observar mejor los dominios)
+    // -------------------------------------------------------------------------------------
+    std::cout << "      -> Simulando con Bordes Fijos (eje X)..." << std::endl;
+
+    FILE *f_bc_ord_low = fopen("ising_bc_ord_low.dat", "w");
+    FILE *f_bc_des_low = fopen("ising_bc_des_low.dat", "w");
+    FILE *f_bc_ord_high = fopen("ising_bc_ord_high.dat", "w");
+    FILE *f_bc_des_high = fopen("ising_bc_des_high.dat", "w");
+
+    if (!f_bc_ord_low || !f_bc_des_low || !f_bc_ord_high || !f_bc_des_high) {
+        std::cerr << "Error abriendo archivos para bordes fijos." << std::endl; return 1;
+    }
+
+    // Inicializamos usando la función con bordes fijos
+    initialize_ordered(sord);
+    initialize_disordered_bc(sdesord);
+    for (int n = 0; n < N; ++n) {
+        for (int m = 0; m < N; ++m) {
+            sord_next[n][m] = sord[n][m];
+            sdesord_next[n][m] = sdesord[n][m];
+        }
+    }
+
+    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
+    writes_ord = 0; writes_des = 0;
+
+    // Bucle Montecarlo (Usando metropolis_sweep_bc) para T_baja
+    for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep_bc(sord, sord_next, T_low);
         metropolis_sweep_bc(sdesord, sdesord_next, T_low);
 
-        if (writes_sord_low < max_writes_low)
-        {
-            int energy = total_energy(sord);
-            if (std::abs(energy - last_energy_sord_low) >= energy_threshold_low)
-            {
-                write_lattice(ford1, sord);
-                last_energy_sord_low = energy;
-                writes_sord_low++;
-            }
+        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+            write_lattice(f_bc_ord_low, sord);
+            last_E_ord = total_energy(sord); writes_ord++;
         }
-
-        if (writes_sdesord_low < max_writes_low)
-        {
-            int energy = total_energy(sdesord);
-            if (std::abs(energy - last_energy_sdesord_low) >= energy_threshold_low)
-            {
-                write_lattice(fdesord1, sdesord);
-                last_energy_sdesord_low = energy;
-                writes_sdesord_low++;
-            }
+        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
+            write_lattice(f_bc_des_low, sdesord);
+            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
 
-    if (extra_trials > 0)
-    {
-        for (int trial = 0; trial < extra_trials; ++trial)
-        {
-            int n = rand() % N;
-            int m = rand() % N;
-            int n2 = n;
-            int m2 = m;
-            int vecino = rand() % 4;
-            if (vecino == 0) n2 = (n + 1) % N;
-            else if (vecino == 1) n2 = (n - 1 + N) % N;
-            else if (vecino == 2) m2 = (m + 1) % N;
-            else m2 = (m - 1 + N) % N;
-
-            int dE = delta_energy_swap(sord, n, m, n2, m2);
-            double p = std::min(1.0, exp(-dE / T_low));
-            if (random_double() < p) {
-                int temp = sord[n][m];
-                sord[n][m] = sord[n2][m2];
-                sord[n2][m2] = temp;
-            }
-
-            n = rand() % N;
-            m = rand() % N;
-            n2 = n; m2 = m;
-            vecino = rand() % 4;
-            if (vecino == 0) n2 = (n + 1) % N;
-            else if (vecino == 1) n2 = (n - 1 + N) % N;
-            else if (vecino == 2) m2 = (m + 1) % N;
-            else m2 = (m - 1 + N) % N;
-            
-            dE = delta_energy_swap(sdesord, n, m, n2, m2);
-            p = std::min(1.0, exp(-dE / T_low));
-            if (random_double() < p) {
-                int temp = sdesord[n][m];
-                sdesord[n][m] = sdesord[n2][m2];
-                sdesord[n2][m2] = temp;
-            }
-        }
-
-        if (writes_sord_low < max_writes_low)
-        {
-            int energy = total_energy(sord);
-            if (std::abs(energy - last_energy_sord_low) >= energy_threshold_low)
-            {
-                write_lattice(ford1, sord);
-                writes_sord_low++;
-            }
-        }
-
-        if (writes_sdesord_low < max_writes_low)
-        {
-            int energy = total_energy(sdesord);
-            if (std::abs(energy - last_energy_sdesord_low) >= energy_threshold_low)
-            {
-                write_lattice(fdesord1, sdesord);
-                writes_sdesord_low++;
-            }
-        }
-    }
-
-    // Segunda fase: T alta
+    // Reiniciamos matrices para probar T_alta con bordes fijos
     initialize_ordered(sord);
     initialize_disordered_bc(sdesord);
-    write_lattice(ford2, sord);
-    write_lattice(fdesord2, sdesord);
-
-    int last_energy_sord_high = total_energy(sord);
-    int last_energy_sdesord_high = total_energy(sdesord);
-    int writes_sord_high = 0;
-    int writes_sdesord_high = 0;
-    int max_writes_high = std::max(1, mc_steps / 10);
-    const int energy_threshold_high = N * 2;
-
-    //Igualamos las matrices de espines "next" a las actuales para que la función metropolis_sweep funcione correctamente
-    for (int n = 0; n < N; ++n)
-    {
-        for (int m = 0; m < N; ++m)
-        {
+    for (int n = 0; n < N; ++n) {
+        for (int m = 0; m < N; ++m) {
             sord_next[n][m] = sord[n][m];
             sdesord_next[n][m] = sdesord[n][m];
         }
     }
 
-    for (int step = 0; step < mc_steps; ++step)
-    {
+    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
+    writes_ord = 0; writes_des = 0;
+
+    // Bucle Montecarlo (Usando metropolis_sweep_bc) para T_alta
+    for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep_bc(sord, sord_next, T_high);
         metropolis_sweep_bc(sdesord, sdesord_next, T_high);
 
-        if (writes_sord_high < max_writes_high)
-        {
-            int energy = total_energy(sord);
-            if (std::abs(energy - last_energy_sord_high) >= energy_threshold_high)
-            {
-                write_lattice(ford2, sord);
-                last_energy_sord_high = energy;
-                writes_sord_high++;
-            }
+        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+            write_lattice(f_bc_ord_high, sord);
+            last_E_ord = total_energy(sord); writes_ord++;
         }
-
-        if (writes_sdesord_high < max_writes_high)
-        {
-            int energy = total_energy(sdesord);
-            if (std::abs(energy - last_energy_sdesord_high) >= energy_threshold_high)
-            {
-                write_lattice(fdesord2, sdesord);
-                last_energy_sdesord_high = energy;
-                writes_sdesord_high++;
-            }
+        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
+            write_lattice(f_bc_des_high, sdesord);
+            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
 
-    if (extra_trials > 0)
-    {
-        for (int trial = 0; trial < extra_trials; ++trial)
-        {
-            int n = rand() % N;
-            int m = rand() % N;
-            int n2 = n;
-            int m2 = m;
-            int vecino = rand() % 4;
-            if (vecino == 0) n2 = (n + 1) % N;
-            else if (vecino == 1) n2 = (n - 1 + N) % N;
-            else if (vecino == 2) m2 = (m + 1) % N;
-            else m2 = (m - 1 + N) % N;
+    fclose(f_bc_ord_low); fclose(f_bc_des_low);
+    fclose(f_bc_ord_high); fclose(f_bc_des_high);
 
-            int dE = delta_energy_swap(sord, n, m, n2, m2);
-            double p = std::min(1.0, exp(-dE / T_high));
-            if (random_double() < p) {
-                int temp = sord[n][m];
-                sord[n][m] = sord[n2][m2];
-                sord[n2][m2] = temp;
-            }
 
-            n = rand() % N;
-            m = rand() % N;
-            n2 = n; m2 = m;
-            vecino = rand() % 4;
-            if (vecino == 0) n2 = (n + 1) % N;
-            else if (vecino == 1) n2 = (n - 1 + N) % N;
-            else if (vecino == 2) m2 = (m + 1) % N;
-            else m2 = (m - 1 + N) % N;
-            
-            dE = delta_energy_swap(sdesord, n, m, n2, m2);
-            p = std::min(1.0, exp(-dE / T_high));
-            if (random_double() < p) {
-                int temp = sdesord[n][m];
-                sdesord[n][m] = sdesord[n2][m2];
-                sdesord[n2][m2] = temp;
-            }
-        }
-
-        if (writes_sord_high < max_writes_high)
-        {
-            int energy = total_energy(sord);
-            if (std::abs(energy - last_energy_sord_high) >= energy_threshold_high)
-            {
-                write_lattice(ford2, sord);
-                writes_sord_high++;
-            }
-        }
-
-        if (writes_sdesord_high < max_writes_high)
-        {
-            int energy = total_energy(sdesord);
-            if (std::abs(energy - last_energy_sdesord_high) >= energy_threshold_high)
-            {
-                write_lattice(fdesord2, sdesord);
-                writes_sdesord_high++;
-            }
-        }
-    }
-
-    fclose(ford1);
-    fclose(fdesord1);
-    fclose(ford2);
-    fclose(fdesord2);
-
-    // Calcular curvas de magnetización
+    // =====================================================================================
+    // TAREAS 2 a 7: Cálculos termodinámicos con magnetización nula (m0 = 0)
+    // =====================================================================================
+    // Esta función encapsula todo: curvas de magnetización, energía, calor específico, 
+    // susceptibilidad y los perfiles de densidad en el eje Y.
+    std::cout << "\n[2/3] Realizando Tareas 2-7: Termodinamica (m0 = 0)..." << std::endl;
     calculate_magnetization();
+
+
+    // =====================================================================================
+    // TAREA 8: Cálculos termodinámicos partiendo de una magnetización NO nula (m0 != 0)
+    // =====================================================================================
+    // Ejecutamos exactamente la misma termodinámica (magnetización, E, c_N, chi_N, perfiles)
+    // pero inicializando el sistema con la fracción asimétrica correspondiente a m0.
+    std::cout << "\n[3/3] Realizando Tarea 8: Termodinamica (m0 != 0)..." << std::endl;
+    double m0_deseada = 0.5; // Probamos con un m0 del 50%
+    calculate_magnetization_m0(m0_deseada);
+
+    std::cout << "\nSimulacion finalizada con exito. Revisa los archivos de salida generados." << std::endl;
+    
+    auto fin = chrono::high_resolution_clock::now();
+    chrono::duration<double, milli> tiempo_ejecucion = fin - inicio;
+    cout << "El código multi-run completo tardó: " << tiempo_ejecucion.count() << " milisegundos." << endl;
 
     return 0;
 }
