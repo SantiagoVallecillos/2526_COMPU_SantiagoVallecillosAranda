@@ -661,6 +661,9 @@ void calculate_magnetization_m0(double m0)
     FILE *prof64 = fopen("perfil64_m0.txt", "w");
     FILE *prof128 = fopen("perfil128_m0.txt", "w");
     
+    // === CAMBIO: Se ha eliminado la declaración global de f_evol aquí.
+    // Ahora se creará de forma dinámica dentro de los bucles.
+
     FILE *files[3] = {mag32, mag64, mag128};
     FILE *files_prof[3] = {prof32, prof64, prof128};
 
@@ -683,7 +686,6 @@ void calculate_magnetization_m0(double m0)
         {
             int L = sizes[s_idx];
             
-            // === CAMBIO: Índice de corte calculado con la fracción x ===
             int L_split = static_cast<int>(round(x_frac * L)); 
             
             std::vector<double> medidas_M(N_experimentos);
@@ -693,8 +695,6 @@ void calculate_magnetization_m0(double m0)
 
             for (int rep = 0; rep < N_experimentos; ++rep)
             {
-                // === CAMBIO: Usamos tu nueva función de inicialización ===
-                // El cast a (int(*)[N_MAG]) es necesario para que el compilador acepte sN
                 initialize_kawasaki_m0((int (*)[N_MAG])sN, m0, L);
 
                 int sN_next[N_MAG][N_MAG];
@@ -704,11 +704,36 @@ void calculate_magnetization_m0(double m0)
                 int mc_steps = total_mc_trials / (L * L);
                 int extra_trials = total_mc_trials % (L * L);
 
+                // === CAMBIO: Modificamos la condición para que capture EN TODAS las temperaturas ===
+                // Quitamos el (i == 0). Ahora captura la primera repetición de la red más grande para cada T
+                bool capture_evolution = (s_idx == 2 && rep == 0);
+                FILE *f_evol = nullptr;
+
+                if (capture_evolution)
+                {
+                    // === CAMBIO: Nombre dinámico que incluye tanto m0 como la temperatura T ===
+                    char filename_evol[100];
+                    snprintf(filename_evol, sizeof(filename_evol), "ising_evol_m0_%.2f_T_%.2f.dat", m0, T_m[i]);
+                    f_evol = fopen(filename_evol, "w");
+                }
+
+                int writes_evol = 0;
+                int max_writes_evol = std::max(1, mc_steps / 10);
+                int energy_threshold_evol = L * 2;
+                double last_energy_evol = 0;
+
                 double suma_E = 0.0;
                 double suma_E2 = 0.0;
                 int numero_medidas = 0; 
                 
                 double energia_actual = total_energy_L(sN, L);
+
+                // Escribimos el estado inicial justo antes del bucle de Montecarlo
+                if (capture_evolution && f_evol)
+                {
+                    write_lattice(f_evol, (const int (*)[N])sN);
+                    last_energy_evol = energia_actual;
+                }
 
                 for (int step = 0; step < mc_steps; ++step)
                 {
@@ -733,6 +758,18 @@ void calculate_magnetization_m0(double m0)
                             energia_actual += dE;
                         }
                     }
+
+                    // Evaluamos si toca exportar el fotograma
+                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
+                    {
+                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
+                        {
+                            write_lattice(f_evol, (const int (*)[N])sN);
+                            last_energy_evol = energia_actual;
+                            writes_evol++;
+                        }
+                    }
+
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
@@ -761,12 +798,29 @@ void calculate_magnetization_m0(double m0)
                             energia_actual += dE;
                         }
                     }
+
+                    // Última comprobación tras los extra_trials
+                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
+                    {
+                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
+                        {
+                            write_lattice(f_evol, (const int (*)[N])sN);
+                            last_energy_evol = energia_actual;
+                            writes_evol++;
+                        }
+                    }
+
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
                 }
 
-                // === CAMBIO: División asimétrica de los dominios ===
+                // === CAMBIO: Cerramos el archivo de la evolución de esta temperatura ===
+                if (capture_evolution && f_evol)
+                {
+                    fclose(f_evol);
+                }
+
                 double m_domain1 = 0.0;
                 double m_domain2 = 0.0;
 
@@ -774,7 +828,6 @@ void calculate_magnetization_m0(double m0)
                 {
                     for (k = 0; k < L; ++k)
                     {
-                        // Cortamos por el índice calculado
                         if (k < L_split) 
                         {
                             m_domain1 += sN[j][k];
@@ -789,11 +842,9 @@ void calculate_magnetization_m0(double m0)
                 double particles_1 = L_split * L;
                 double particles_2 = (L - L_split) * L;
                 
-                // Extraemos magnetización de cada dominio asegurándonos de que haya partículas (para evitar 0/0)
                 double mag_1 = (particles_1 > 0) ? (fabs(m_domain1) / particles_1) : 0.0;
                 double mag_2 = (particles_2 > 0) ? (fabs(m_domain2) / particles_2) : 0.0;
                 
-                // Promediamos
                 double mag_domain;
                 if (particles_1 == 0) mag_domain = mag_2;
                 else if (particles_2 == 0) mag_domain = mag_1;
@@ -1025,9 +1076,10 @@ int main()
     // Ejecutamos exactamente la misma termodinámica (magnetización, E, c_N, chi_N, perfiles)
     // pero inicializando el sistema con la fracción asimétrica correspondiente a m0.
     std::cout << "\n[3/3] Realizando Tarea 8: Termodinamica (m0 != 0)..." << std::endl;
-    double m0_deseada = 0.5; // Probamos con un m0 del 50%
-    calculate_magnetization_m0(m0_deseada);
-
+    double m0_deseada_1 = 0.5; // Probamos con un m0 del 50%
+    double m0_deseada_2 = 0.8; // Probamos con un m0 del 80%
+    calculate_magnetization_m0(m0_deseada_1);
+    calculate_magnetization_m0(m0_deseada_2);
     std::cout << "\nSimulacion finalizada con exito. Revisa los archivos de salida generados." << std::endl;
     
     auto fin = chrono::high_resolution_clock::now();

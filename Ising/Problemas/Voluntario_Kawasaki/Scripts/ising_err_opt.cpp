@@ -651,7 +651,7 @@ void calculate_magnetization_m0(double m0)
     #define N_MAG 128
     constexpr int N_TEMPS = 10;
     const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
-    int i, j, k, n, m;
+    int i; // Mantenemos solo 'i' como global para el bucle exterior de temperaturas
 
     // Abrimos archivos con sufijo _m0 para no sobreescribir los datos de m0=0
     FILE *mag32 = fopen("magn32_m0.txt", "w");
@@ -671,7 +671,6 @@ void calculate_magnetization_m0(double m0)
     }
 
     const int N_experimentos = 10;
-
     int sizes[3] = {32, 64, 128};
 
     // Calculamos la fracción teórica x
@@ -682,8 +681,6 @@ void calculate_magnetization_m0(double m0)
         for (int s_idx = 0; s_idx < 3; ++s_idx) 
         {
             int L = sizes[s_idx];
-            
-            // === CAMBIO: Índice de corte calculado con la fracción x ===
             int L_split = static_cast<int>(round(x_frac * L)); 
             
             std::vector<double> medidas_M(N_experimentos);
@@ -691,19 +688,26 @@ void calculate_magnetization_m0(double m0)
             std::vector<double> medidas_E2(N_experimentos);
             std::vector<double> medidas_M2(N_experimentos);
 
+            // === CAMBIO OpenMP: Paralelizamos el bucle de repeticiones de Montecarlo ===
             #pragma omp parallel for schedule(dynamic)
             for (int rep = 0; rep < N_experimentos; ++rep)
             {
+                // Generamos una semilla única por hilo y repetición para evitar colisiones RNG
                 unsigned int seed = (unsigned int)time(NULL) ^ (unsigned int)rep ^ (unsigned int)omp_get_thread_num();
+                
+                // === CAMBIO OpenMP: Matriz sN pasa a ser sN_local (privada para cada hilo) ===
                 int sN_local[N_MAG][N_MAG];
+                
+                // Inicializamos la matriz local a -1
                 for (int nn = 0; nn < L; ++nn)
                     for (int mm = 0; mm < L; ++mm)
                         sN_local[nn][mm] = -1;
 
-                // Inicializamos con la fracción m0
-                double x = (1.0 + m0) / 2.0;
+                // === CAMBIO OpenMP: Inicialización 'm0' en línea (Thread-safe) ===
+                // En lugar de llamar a initialize_kawasaki_m0() que usa el rand() global, 
+                // generamos los espines aquí dentro usando rand_r(&seed)
                 int total_spins = L * L;
-                int count_plus_needed = static_cast<int>(round(x * total_spins));
+                int count_plus_needed = static_cast<int>(round(x_frac * total_spins));
                 int count_ones = 0;
                 while (count_ones < count_plus_needed)
                 {
@@ -716,38 +720,85 @@ void calculate_magnetization_m0(double m0)
                     }
                 }
 
+                // Matriz para guardar el estado siguiente
                 int sN_next[N_MAG][N_MAG];
-                copy_lattice((const int(*)[128])sN_local, sN_next, L);
+                for (int nn = 0; nn < L; ++nn)
+                    for (int mm = 0; mm < L; ++mm)
+                        sN_next[nn][mm] = sN_local[nn][mm];
 
                 const int total_mc_trials = 1000000;
                 int mc_steps = total_mc_trials / (L * L);
                 int extra_trials = total_mc_trials % (L * L);
 
+                // Control para exportar el fotograma (sólo hilo de la repetición 0 lo hará)
+                bool capture_evolution = (s_idx == 2 && rep == 0);
+                FILE *f_evol = nullptr;
+
+                if (capture_evolution)
+                {
+                    char filename_evol[100];
+                    snprintf(filename_evol, sizeof(filename_evol), "ising_evol_m0_%.2f_T_%.2f.dat", m0, T_m[i]);
+                    f_evol = fopen(filename_evol, "w");
+                }
+
+                int writes_evol = 0;
+                int max_writes_evol = std::max(1, mc_steps / 10);
+                int energy_threshold_evol = L * 2;
+                double last_energy_evol = 0;
+
                 double suma_E = 0.0;
                 double suma_E2 = 0.0;
-                int numero_medidas = 0;
-                double energia_actual = total_energy_L((const int(*)[128])sN_local, L);
+                int numero_medidas = 0; 
+                
+                // Evaluamos energía inicial (pasando el puntero local)
+                double energia_actual = total_energy_L((const int (*)[128])sN_local, L);
+
+                if (capture_evolution && f_evol)
+                {
+                    write_lattice(f_evol, (const int (*)[N])sN_local);
+                    last_energy_evol = energia_actual;
+                }
 
                 for (int step = 0; step < mc_steps; ++step)
                 {
                     for (int trial = 0; trial < L * L; ++trial)
                     {
+                        // === CAMBIO OpenMP: Usamos rand_r en todo el Montecarlo ===
                         int n = 1 + rand_r(&seed) % (L - 2);
                         int m = rand_r(&seed) % L;
+
                         int n2, m2;
+                        // OJO: select_neighbor_bc por dentro sigue usando rand(). Si te da problemas de rendimiento
+                        // lo ideal es no usarla y poner el vecino directamente aquí dentro como en metropolis_sweep.
+                        // La mantengo para respetar tu estructura exacta.
                         select_neighbor_bc(n, m, L, n2, m2);
-                        int dE = delta_energy_swap_L((const int(*)[128])sN_local, n, m, n2, m2, L);
+
+                        int dE = delta_energy_swap_L((const int (*)[128])sN_local, n, m, n2, m2, L);
                         double p = min(1.0, exp(-dE / T_m[i]));
-                        if (random_double_r(seed) < p)
+                        
+                        // === CAMBIO OpenMP: random_double pasa a random_double_r ===
+                        if (random_double_r(seed) < p) 
                         {
                             int temp = sN_local[n][m];
                             sN_local[n][m] = sN_local[n2][m2];
                             sN_local[n2][m2] = temp;
                             sN_next[n][m] = sN_local[n][m];
                             sN_next[n2][m2] = sN_local[n2][m2];
+                            
                             energia_actual += dE;
                         }
                     }
+
+                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
+                    {
+                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
+                        {
+                            write_lattice(f_evol, (const int (*)[N])sN_local);
+                            last_energy_evol = energia_actual;
+                            writes_evol++;
+                        }
+                    }
+
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
@@ -755,13 +806,16 @@ void calculate_magnetization_m0(double m0)
 
                 if (extra_trials > 0)
                 {
-                    for (j = 0; j < extra_trials; ++j)
+                    // === CAMBIO OpenMP: Variable de bucle local 'j_ext' para no chocar con otros hilos ===
+                    for (int j_ext = 0; j_ext < extra_trials; ++j_ext)
                     {
                         int n = 1 + rand_r(&seed) % (L - 2);
                         int m = rand_r(&seed) % L;
+
                         int n2, m2;
                         select_neighbor_bc(n, m, L, n2, m2);
-                        int dE = delta_energy_swap_L((const int(*)[128])sN_local, n, m, n2, m2, L);
+
+                        int dE = delta_energy_swap_L((const int (*)[128])sN_local, n, m, n2, m2, L);
                         double p = min(1.0, exp(-dE / T_m[i]));
                         if (random_double_r(seed) < p)
                         {
@@ -770,34 +824,71 @@ void calculate_magnetization_m0(double m0)
                             sN_local[n2][m2] = temp;
                             sN_next[n][m] = sN_local[n][m];
                             sN_next[n2][m2] = sN_local[n2][m2];
+                            
                             energia_actual += dE;
                         }
                     }
+
+                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
+                    {
+                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
+                        {
+                            write_lattice(f_evol, (const int (*)[N])sN_local);
+                            last_energy_evol = energia_actual;
+                            writes_evol++;
+                        }
+                    }
+
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
                 }
 
+                if (capture_evolution && f_evol)
+                {
+                    fclose(f_evol);
+                }
+
                 double m_domain1 = 0.0;
                 double m_domain2 = 0.0;
-                for (j = 0; j < L; ++j) for (k = 0; k < L; ++k) { if (k < L_split) m_domain1 += sN_local[j][k]; else m_domain2 += sN_local[j][k]; }
 
+                // === CAMBIO OpenMP: Variables de bucle jj y kk locales ===
+                for (int jj = 0; jj < L; ++jj)
+                {
+                    for (int kk = 0; kk < L; ++kk)
+                    {
+                        if (kk < L_split) 
+                            m_domain1 += sN_local[jj][kk];
+                        else 
+                            m_domain2 += sN_local[jj][kk];
+                    }
+                }
+                
                 double particles_1 = L_split * L;
                 double particles_2 = (L - L_split) * L;
+                
                 double mag_1 = (particles_1 > 0) ? (fabs(m_domain1) / particles_1) : 0.0;
                 double mag_2 = (particles_2 > 0) ? (fabs(m_domain2) / particles_2) : 0.0;
-                double mag_domain = (particles_1 == 0) ? mag_2 : ((particles_2 == 0) ? mag_1 : (mag_1 + mag_2) / 2.0);
-
+                
+                double mag_domain;
+                if (particles_1 == 0) mag_domain = mag_2;
+                else if (particles_2 == 0) mag_domain = mag_1;
+                else mag_domain = (mag_1 + mag_2) / 2.0;
+                
                 double num_particulas = L * L;
-                medidas_M[rep] = mag_domain;
+                
+                medidas_M[rep] = mag_domain; 
                 medidas_M2[rep] = (mag_domain * mag_domain);
                 medidas_E[rep] = (suma_E / numero_medidas) / num_particulas;
                 medidas_E2[rep] = (suma_E2 / numero_medidas) / (num_particulas * num_particulas);
-
+                
                 if (rep == N_experimentos - 1)
                 {
+                    // === CAMBIO OpenMP: Impedimos colisión en escritura a archivo ===
                     #pragma omp critical
-                    export_density_profile(files_prof[s_idx], (const int (*)[N_MAG])sN_local, L, T_m[i]);
+                    {
+                        export_density_profile(files_prof[s_idx], (const int (*)[N_MAG])sN_local, L, T_m[i]);
+                    }
                 }
             }
 
