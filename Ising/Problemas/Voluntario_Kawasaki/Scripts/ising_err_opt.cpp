@@ -1105,8 +1105,10 @@ int main()
     // Ejecutamos exactamente la misma termodinámica (magnetización, E, c_N, chi_N, perfiles)
     // pero inicializando el sistema con la fracción asimétrica correspondiente a m0.
     std::cout << "\n[3/3] Realizando Tarea 8: Termodinamica (m0 != 0)..." << std::endl;
-    double m0_deseada = 0.5; // Probamos con un m0 del 50%
-    calculate_magnetization_m0(m0_deseada);
+    double m0_deseada_1 = 0.5; // Probamos con un m0 del 50%
+    double m0_deseada_2 = 0.8; // Probamos con un m0 del 80%
+    calculate_magnetization_m0(m0_deseada_1);
+    calculate_magnetization_m0(m0_deseada_2);
 
     std::cout << "\nSimulacion finalizada con exito. Revisa los archivos de salida generados." << std::endl;
 
