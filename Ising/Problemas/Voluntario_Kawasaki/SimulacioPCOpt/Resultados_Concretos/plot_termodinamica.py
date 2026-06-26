@@ -6,7 +6,7 @@ import os
 # CONFIGURACIÓN DEL SCRIPT
 # ==============================================================================
 # Nombres de los archivos a leer. Puedes cambiarlos por los terminados en "_m0.txt"
-archivos = ['magn32.txt', 'magn64.txt', 'magn128.txt']
+archivos = ['magn32_m0_0.80.txt', 'magn64_m0_0.80.txt', 'magn128_m0_0.80.txt']
 etiquetas = ['N = 32', 'N = 64', 'N = 128']
 colores = ['blue', 'orange', 'green']
 

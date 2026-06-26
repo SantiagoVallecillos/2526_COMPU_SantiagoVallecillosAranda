@@ -5,8 +5,8 @@ import os
 # ==============================================================================
 # CONFIGURACIÓN DEL SCRIPT
 # ==============================================================================
-archivo_perfil = 'perfil64.txt'
-L = 64 
+archivo_perfil = 'perfil128_m0_0.80.txt'
+L = 128
 
 # Seleccionamos temperaturas específicas para que el gráfico no esté saturado
 temperaturas_a_graficar = [1.5, 2.3, 3.1] 
@@ -42,7 +42,7 @@ for idx, T_target in enumerate(temperaturas_a_graficar):
 # ==============================================================================
 # FORMATO FINAL Y GUARDADO
 # ==============================================================================
-plt.title(f'Perfil de Densidad (Barras) para N = {L}', fontsize=14)
+plt.title(f'Perfil de Densidad para N = {L}', fontsize=14)
 plt.xlabel('Coordenada Y (Posición de la fila)', fontsize=12)
 plt.ylabel('Densidad (Fracción de espines +1)', fontsize=12)
 
@@ -51,6 +51,6 @@ plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.legend()
 
 plt.tight_layout()
-plt.savefig(f'perfil_densidad_barras_N{L}.png', dpi=300)
-print(f"Gráfica de barras guardada como 'perfil_densidad_barras_N{L}.png'")
+plt.savefig(f'perfil_densidad_{L}_.png', dpi=300)
+print(f"Gráfica de barras guardada como 'perfil_densidad_barras_{L}_.png'")
 plt.show()
