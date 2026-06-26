@@ -82,7 +82,10 @@ int delta_energy_swap_L(const int spins[128][128], int n1, int m1, int n2, int m
     int left2 = spins[n2][(m2 - 1 + L) % L];
     int sum2 = up2 + down2 + right2 + left2;
 
-    return (spins[n1][m1] - spins[n2][m2]) * (sum1 - sum2);
+    // === CORRECCIÓN VITAL PARA KAWASAKI ===
+    // Como siempre intercambiamos vecinos directos, debemos restar su enlace mutuo
+    // de los sumatorios para no contarlo dos veces ni falsear el delta E.
+    return (spins[n1][m1] - spins[n2][m2]) * ((sum1 - spins[n2][m2]) - (sum2 - spins[n1][m1]));
 }
 
 // Versión para matriz de tamaño fijo N (para mantener compatibilidad con código existente)
@@ -371,10 +374,6 @@ void calculate_magnetization()
     constexpr int N_TEMPS = 10;
     const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
     int i, j, k, n, m;
-    
-    // === CAMBIO 1: Eliminamos E, E2, M2 globales de aquí. ===
-    // Por qué: Deben inicializarse por separado para cada repetición y tamaño, 
-    // así que usaremos vectores dentro del bucle como propusiste.
 
     FILE *mag32 = fopen("magn32.txt", "w");
     FILE *mag64 = fopen("magn64.txt", "w");
@@ -403,8 +402,6 @@ void calculate_magnetization()
         {
             int L = sizes[s_idx];
             
-            // === CAMBIO 3: Adaptamos los vectores para E, E2 y M2 ===
-            // Por qué: Para almacenar el promedio de E, E2 y M2 de CADA repetición independiente.
             std::vector<double> medidas_M(N_experimentos);
             std::vector<double> medidas_E(N_experimentos);
             std::vector<double> medidas_E2(N_experimentos);
@@ -443,16 +440,15 @@ void calculate_magnetization()
                     }
                 }
 
-                const int total_mc_trials = 1000000;
+                // === CAMBIO: Ahora utilizamos TOTAL_TRIALS para asegurar la termalización (100 millones) ===
+                const long long total_mc_trials = TOTAL_TRIALS;
                 int mc_steps = total_mc_trials / (L * L);
                 int extra_trials = total_mc_trials % (L * L);
 
-                // === CAMBIO 4: Variables termodinámicas para ESTA repetición concreta ===
                 double suma_E = 0.0;
                 double suma_E2 = 0.0;
-                int numero_medidas = 0; // Para promediar al final de la repetición
+                int numero_medidas = 0; 
                 
-                // Calculamos la energía base SOLO UNA VEZ por repetición (Rendimiento O(1) en el bucle)
                 double energia_actual = total_energy_L(sN, L);
 
                 for (int step = 0; step < mc_steps; ++step)
@@ -475,11 +471,9 @@ void calculate_magnetization()
                             sN_next[n][m] = sN[n][m];
                             sN_next[n2][m2] = sN[n2][m2];
                             
-                            // === CAMBIO 4 (Continuación): Actualizamos la energía en O(1) ===
                             energia_actual += dE;
                         }
                     }
-                    // Acumulamos la medida tras cada sweep de Montecarlo
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
@@ -505,7 +499,6 @@ void calculate_magnetization()
                             sN_next[n][m] = sN[n][m];
                             sN_next[n2][m2] = sN[n2][m2];
                             
-                            // === CAMBIO 4 (Continuación) ===
                             energia_actual += dE;
                         }
                     }
@@ -535,9 +528,6 @@ void calculate_magnetization()
                 double particles_per_half = (L * L) / 2.0;
                 double mag_domain = (fabs(m_top) / particles_per_half + fabs(m_bottom) / particles_per_half) / 2.0;
                 
-                // === CAMBIO 1.2: Normalización por partícula ===
-                // Convertimos la energía total acumulada a energía por partícula dividiendo entre N (que es L*L).
-                // Nota: La energía al cuadrado (E2) se debe dividir por el cuadrado del número de partículas ((L*L)^2).
                 double num_particulas = L * L;
                 
                 medidas_M[rep] = mag_domain; 
@@ -545,16 +535,12 @@ void calculate_magnetization()
                 medidas_E[rep] = (suma_E / numero_medidas) / num_particulas;
                 medidas_E2[rep] = (suma_E2 / numero_medidas) / (num_particulas * num_particulas);
                 
-                // Solo necesitamos el perfil de una de las repeticiones (por ejemplo, la última)
-                // para tener una "foto" representativa del estado del sistema a esta temperatura.
                 if (rep == N_experimentos - 1)
                 {
-                    // casteamos sN a const int (*)[N_MAG] para que coincida con la firma de la función
                     export_density_profile(files_prof[s_idx], (const int (*)[N_MAG])sN, L, T_m[i]);
                 }
             }
 
-            // === CAMBIO 6: Calculamos medias y errores para todas las magnitudes termodinámicas ===
             double media_M, err_M;
             calcular_error_montecarlo(medidas_M, media_M, err_M);
             
@@ -567,17 +553,12 @@ void calculate_magnetization()
             double media_E2, err_E2;
             calcular_error_montecarlo(medidas_E2, media_E2, err_E2);
 
-            // === CAMBIO 1.3: Cálculo de calor específico y susceptibilidad ===
-            // Como las medias que hemos obtenido están "por partícula" (<e>, <e^2>, <m>, <m^2>), 
-            // aplicamos el factor multiplicativo (L*L) derivado de adaptar la fórmula extensiva del PDF a valores intensivos.
             double num_particulas = L * L;
             double T = T_m[i];
             
             double c_N = (num_particulas / (T * T)) * (media_E2 - (media_E * media_E));
             double chi_N = (num_particulas / T) * (media_M2 - (media_M * media_M));
 
-            // === CAMBIO 1.3 (Parte 2): Añadidas c_N y chi_N al archivo de salida ===
-            // Formato CSV por tabulaciones: T | <M> | err_M | <E> | err_E | c_N | chi_N
             fprintf(files[s_idx], "%lf\t%e\t%e\t%e\t%e\t%e\t%e\n", T_m[i], media_M, err_M, media_E, err_E, c_N, chi_N);
         }
     }
@@ -610,7 +591,6 @@ void export_global_spin_count(FILE* file, const int spins[128][128], int L, doub
         }
     }
 
-    // Formato CSV por tabulaciones: Temperatura | Cantidad +1 | Cantidad -1
     fprintf(file, "%lf\t%d\t%d\n", T, count_plus, count_minus);
 }
 
@@ -619,13 +599,11 @@ void export_global_spin_count(FILE* file, const int spins[128][128], int L, doub
 // ---------------------------------------------------------
 void export_density_profile(FILE* file, const int spins[N][N], int L, double T)
 {
-    // Iteramos sobre la coordenada Y (que en tu matriz es el segundo índice, 'm')
     for (int m = 0; m < L; ++m)
     {
         int count_plus = 0;
         int count_minus = 0;
         
-        // Sumamos todos los valores a lo largo de la coordenada X (primer índice, 'n')
         for (int n = 0; n < L; ++n)
         {
             if (spins[n][m] == 1)
@@ -634,11 +612,8 @@ void export_density_profile(FILE* file, const int spins[N][N], int L, double T)
                 count_minus++;
         }
         
-        // Exportamos: Temperatura, Coordenada Y, Cantidad +1, Cantidad -1
         fprintf(file, "%lf\t%d\t%d\t%d\n", T, m, count_plus, count_minus);
     }
-    // Dejamos una línea en blanco al terminar la matriz. 
-    // Esto es muy útil en Gnuplot para separar los datos de distintas temperaturas.
     fprintf(file, "\n"); 
 }
 
@@ -653,17 +628,26 @@ void calculate_magnetization_m0(double m0)
     const double T_m[N_TEMPS] = {1.5, 1.7, 1.9, 2.1, 2.3, 2.5, 2.7, 2.9, 3.1, 3.3};
     int i, j, k, n, m;
 
-    // Abrimos archivos con sufijo _m0 para no sobreescribir los datos de m0=0
-    FILE *mag32 = fopen("magn32_m0.txt", "w");
-    FILE *mag64 = fopen("magn64_m0.txt", "w");
-    FILE *mag128 = fopen("magn128_m0.txt", "w");
-    FILE *prof32 = fopen("perfil32_m0.txt", "w");
-    FILE *prof64 = fopen("perfil64_m0.txt", "w");
-    FILE *prof128 = fopen("perfil128_m0.txt", "w");
-    
-    // === CAMBIO: Se ha eliminado la declaración global de f_evol aquí.
-    // Ahora se creará de forma dinámica dentro de los bucles.
+    // === CAMBIO: Cadenas para almacenar los nombres de archivo de forma dinámica y evitar sobreescribir ===
+    char name_mag32[100], name_mag64[100], name_mag128[100];
+    char name_prof32[100], name_prof64[100], name_prof128[100];
 
+    snprintf(name_mag32, sizeof(name_mag32), "magn32_m0_%.2f.txt", m0);
+    snprintf(name_mag64, sizeof(name_mag64), "magn64_m0_%.2f.txt", m0);
+    snprintf(name_mag128, sizeof(name_mag128), "magn128_m0_%.2f.txt", m0);
+
+    snprintf(name_prof32, sizeof(name_prof32), "perfil32_m0_%.2f.txt", m0);
+    snprintf(name_prof64, sizeof(name_prof64), "perfil64_m0_%.2f.txt", m0);
+    snprintf(name_prof128, sizeof(name_prof128), "perfil128_m0_%.2f.txt", m0);
+
+    // Abrimos los archivos usando los nombres dinámicos generados arriba
+    FILE *mag32 = fopen(name_mag32, "w");
+    FILE *mag64 = fopen(name_mag64, "w");
+    FILE *mag128 = fopen(name_mag128, "w");
+    FILE *prof32 = fopen(name_prof32, "w");
+    FILE *prof64 = fopen(name_prof64, "w");
+    FILE *prof128 = fopen(name_prof128, "w");
+    
     FILE *files[3] = {mag32, mag64, mag128};
     FILE *files_prof[3] = {prof32, prof64, prof128};
 
@@ -674,10 +658,7 @@ void calculate_magnetization_m0(double m0)
     }
 
     const int N_experimentos = 10;
-
     int sizes[3] = {32, 64, 128};
-
-    // Calculamos la fracción teórica x
     double x_frac = (1.0 + m0) / 2.0;
 
     for (i = 0; i < N_TEMPS; i++)
@@ -685,7 +666,6 @@ void calculate_magnetization_m0(double m0)
         for (int s_idx = 0; s_idx < 3; ++s_idx) 
         {
             int L = sizes[s_idx];
-            
             int L_split = static_cast<int>(round(x_frac * L)); 
             
             std::vector<double> medidas_M(N_experimentos);
@@ -700,40 +680,26 @@ void calculate_magnetization_m0(double m0)
                 int sN_next[N_MAG][N_MAG];
                 copy_lattice(sN, sN_next, L);
 
-                const int total_mc_trials = 1000000;
+                // === CAMBIO: Usamos TOTAL_TRIALS para asegurar que realiza los mismos pasos para termalizar ===
+                const long long total_mc_trials = TOTAL_TRIALS;
                 int mc_steps = total_mc_trials / (L * L);
                 int extra_trials = total_mc_trials % (L * L);
 
-                // === CAMBIO: Modificamos la condición para que capture EN TODAS las temperaturas ===
-                // Quitamos el (i == 0). Ahora captura la primera repetición de la red más grande para cada T
                 bool capture_evolution = (s_idx == 2 && rep == 0);
                 FILE *f_evol = nullptr;
 
                 if (capture_evolution)
                 {
-                    // === CAMBIO: Nombre dinámico que incluye tanto m0 como la temperatura T ===
                     char filename_evol[100];
                     snprintf(filename_evol, sizeof(filename_evol), "ising_evol_m0_%.2f_T_%.2f.dat", m0, T_m[i]);
                     f_evol = fopen(filename_evol, "w");
                 }
-
-                int writes_evol = 0;
-                int max_writes_evol = std::max(1, mc_steps / 10);
-                int energy_threshold_evol = L * 2;
-                double last_energy_evol = 0;
 
                 double suma_E = 0.0;
                 double suma_E2 = 0.0;
                 int numero_medidas = 0; 
                 
                 double energia_actual = total_energy_L(sN, L);
-
-                // Escribimos el estado inicial justo antes del bucle de Montecarlo
-                if (capture_evolution && f_evol)
-                {
-                    write_lattice(f_evol, (const int (*)[N])sN);
-                    last_energy_evol = energia_actual;
-                }
 
                 for (int step = 0; step < mc_steps; ++step)
                 {
@@ -759,14 +725,11 @@ void calculate_magnetization_m0(double m0)
                         }
                     }
 
-                    // Evaluamos si toca exportar el fotograma
-                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
+                    if (capture_evolution && f_evol)
                     {
-                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
+                        if (step % std::max(1, mc_steps / 10) == 0)
                         {
                             write_lattice(f_evol, (const int (*)[N])sN);
-                            last_energy_evol = energia_actual;
-                            writes_evol++;
                         }
                     }
 
@@ -798,26 +761,14 @@ void calculate_magnetization_m0(double m0)
                             energia_actual += dE;
                         }
                     }
-
-                    // Última comprobación tras los extra_trials
-                    if (capture_evolution && f_evol && writes_evol < max_writes_evol)
-                    {
-                        if (std::abs(energia_actual - last_energy_evol) >= energy_threshold_evol)
-                        {
-                            write_lattice(f_evol, (const int (*)[N])sN);
-                            last_energy_evol = energia_actual;
-                            writes_evol++;
-                        }
-                    }
-
                     suma_E += energia_actual;
                     suma_E2 += (energia_actual * energia_actual);
                     numero_medidas++;
                 }
-
-                // === CAMBIO: Cerramos el archivo de la evolución de esta temperatura ===
+                
                 if (capture_evolution && f_evol)
                 {
+                    write_lattice(f_evol, (const int (*)[N])sN);
                     fclose(f_evol);
                 }
 
@@ -907,8 +858,6 @@ int main()
 
     int mc_steps = TOTAL_TRIALS / (N * N);
     int extra_trials = TOTAL_TRIALS % (N * N);
-    int max_writes = std::max(1, mc_steps / 10);
-    const int energy_threshold = N * 2;
 
     // -------------------------------------------------------------------------------------
     // CASO A: T_baja y T_alta con CONDICIONES PERIÓDICAS EN AMBOS EJES
@@ -936,24 +885,60 @@ int main()
         }
     }
 
-    int last_E_ord = total_energy(sord);
-    int last_E_des = total_energy(sdesord);
-    int writes_ord = 0, writes_des = 0;
-
     // Bucle Montecarlo (Usando metropolis_sweep normal) para T_baja
     for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep(sord, sord_next, T_low);
         metropolis_sweep(sdesord, sdesord_next, T_low);
 
-        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+        if (step % std::max(1, mc_steps / 10) == 0) {
             write_lattice(f_per_ord_low, sord);
-            last_E_ord = total_energy(sord); writes_ord++;
-        }
-        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
             write_lattice(f_per_des_low, sdesord);
-            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
+
+    if (extra_trials > 0)
+    {
+        for (int trial = 0; trial < extra_trials; ++trial)
+        {
+            int n = rand() % N;
+            int m = rand() % N;
+            int n2 = n;
+            int m2 = m;
+            int vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+
+            int dE = delta_energy_swap(sord, n, m, n2, m2);
+            double p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p) {
+                int temp = sord[n][m];
+                sord[n][m] = sord[n2][m2];
+                sord[n2][m2] = temp;
+            }
+
+            n = rand() % N;
+            m = rand() % N;
+            n2 = n; m2 = m;
+            vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+            
+            dE = delta_energy_swap(sdesord, n, m, n2, m2);
+            p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p) {
+                int temp = sdesord[n][m];
+                sdesord[n][m] = sdesord[n2][m2];
+                sdesord[n2][m2] = temp;
+            }
+        }
+    }
+
+    write_lattice(f_per_ord_low, sord);
+    write_lattice(f_per_des_low, sdesord);
 
     // Reiniciamos matrices para probar T_alta con Periódicas
     initialize_ordered(sord);
@@ -965,23 +950,60 @@ int main()
         }
     }
     
-    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
-    writes_ord = 0; writes_des = 0;
-
     // Bucle Montecarlo (Usando metropolis_sweep normal) para T_alta
     for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep(sord, sord_next, T_high);
         metropolis_sweep(sdesord, sdesord_next, T_high);
 
-        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+        if (step % std::max(1, mc_steps / 10) == 0) {
             write_lattice(f_per_ord_high, sord);
-            last_E_ord = total_energy(sord); writes_ord++;
-        }
-        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
             write_lattice(f_per_des_high, sdesord);
-            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
+
+    if (extra_trials > 0)
+    {
+        for (int trial = 0; trial < extra_trials; ++trial)
+        {
+            int n = rand() % N;
+            int m = rand() % N;
+            int n2 = n;
+            int m2 = m;
+            int vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+
+            int dE = delta_energy_swap(sord, n, m, n2, m2);
+            double p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p) {
+                int temp = sord[n][m];
+                sord[n][m] = sord[n2][m2];
+                sord[n2][m2] = temp;
+            }
+
+            n = rand() % N;
+            m = rand() % N;
+            n2 = n; m2 = m;
+            vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+            
+            dE = delta_energy_swap(sdesord, n, m, n2, m2);
+            p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p) {
+                int temp = sdesord[n][m];
+                sdesord[n][m] = sdesord[n2][m2];
+                sdesord[n2][m2] = temp;
+            }
+        }
+    }
+
+    write_lattice(f_per_ord_high, sord);
+    write_lattice(f_per_des_high, sdesord);
 
     fclose(f_per_ord_low); fclose(f_per_des_low);
     fclose(f_per_ord_high); fclose(f_per_des_high);
@@ -1011,23 +1033,60 @@ int main()
         }
     }
 
-    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
-    writes_ord = 0; writes_des = 0;
-
     // Bucle Montecarlo (Usando metropolis_sweep_bc) para T_baja
     for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep_bc(sord, sord_next, T_low);
         metropolis_sweep_bc(sdesord, sdesord_next, T_low);
 
-        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+        if (step % std::max(1, mc_steps / 10) == 0) {
             write_lattice(f_bc_ord_low, sord);
-            last_E_ord = total_energy(sord); writes_ord++;
-        }
-        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
             write_lattice(f_bc_des_low, sdesord);
-            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
+
+    if (extra_trials > 0)
+    {
+        for (int trial = 0; trial < extra_trials; ++trial)
+        {
+            int n = rand() % N;
+            int m = rand() % N;
+            int n2 = n;
+            int m2 = m;
+            int vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+
+            int dE = delta_energy_swap(sord, n, m, n2, m2);
+            double p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p) {
+                int temp = sord[n][m];
+                sord[n][m] = sord[n2][m2];
+                sord[n2][m2] = temp;
+            }
+
+            n = rand() % N;
+            m = rand() % N;
+            n2 = n; m2 = m;
+            vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+            
+            dE = delta_energy_swap(sdesord, n, m, n2, m2);
+            p = std::min(1.0, exp(-dE / T_low));
+            if (random_double() < p) {
+                int temp = sdesord[n][m];
+                sdesord[n][m] = sdesord[n2][m2];
+                sdesord[n2][m2] = temp;
+            }
+        }
+    }
+
+    write_lattice(f_bc_ord_low, sord);
+    write_lattice(f_bc_des_low, sdesord);
 
     // Reiniciamos matrices para probar T_alta con bordes fijos
     initialize_ordered(sord);
@@ -1039,23 +1098,60 @@ int main()
         }
     }
 
-    last_E_ord = total_energy(sord); last_E_des = total_energy(sdesord);
-    writes_ord = 0; writes_des = 0;
-
     // Bucle Montecarlo (Usando metropolis_sweep_bc) para T_alta
     for (int step = 0; step < mc_steps; ++step) {
         metropolis_sweep_bc(sord, sord_next, T_high);
         metropolis_sweep_bc(sdesord, sdesord_next, T_high);
 
-        if (writes_ord < max_writes && std::abs(total_energy(sord) - last_E_ord) >= energy_threshold) {
+        if (step % std::max(1, mc_steps / 10) == 0) {
             write_lattice(f_bc_ord_high, sord);
-            last_E_ord = total_energy(sord); writes_ord++;
-        }
-        if (writes_des < max_writes && std::abs(total_energy(sdesord) - last_E_des) >= energy_threshold) {
             write_lattice(f_bc_des_high, sdesord);
-            last_E_des = total_energy(sdesord); writes_des++;
         }
     }
+
+    if (extra_trials > 0)
+    {
+        for (int trial = 0; trial < extra_trials; ++trial)
+        {
+            int n = rand() % N;
+            int m = rand() % N;
+            int n2 = n;
+            int m2 = m;
+            int vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+
+            int dE = delta_energy_swap(sord, n, m, n2, m2);
+            double p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p) {
+                int temp = sord[n][m];
+                sord[n][m] = sord[n2][m2];
+                sord[n2][m2] = temp;
+            }
+
+            n = rand() % N;
+            m = rand() % N;
+            n2 = n; m2 = m;
+            vecino = rand() % 4;
+            if (vecino == 0) n2 = (n + 1) % N;
+            else if (vecino == 1) n2 = (n - 1 + N) % N;
+            else if (vecino == 2) m2 = (m + 1) % N;
+            else m2 = (m - 1 + N) % N;
+            
+            dE = delta_energy_swap(sdesord, n, m, n2, m2);
+            p = std::min(1.0, exp(-dE / T_high));
+            if (random_double() < p) {
+                int temp = sdesord[n][m];
+                sdesord[n][m] = sdesord[n2][m2];
+                sdesord[n2][m2] = temp;
+            }
+        }
+    }
+
+    write_lattice(f_bc_ord_high, sord);
+    write_lattice(f_bc_des_high, sdesord);
 
     fclose(f_bc_ord_low); fclose(f_bc_des_low);
     fclose(f_bc_ord_high); fclose(f_bc_des_high);
@@ -1064,8 +1160,6 @@ int main()
     // =====================================================================================
     // TAREAS 2 a 7: Cálculos termodinámicos con magnetización nula (m0 = 0)
     // =====================================================================================
-    // Esta función encapsula todo: curvas de magnetización, energía, calor específico, 
-    // susceptibilidad y los perfiles de densidad en el eje Y.
     std::cout << "\n[2/3] Realizando Tareas 2-7: Termodinamica (m0 = 0)..." << std::endl;
     calculate_magnetization();
 
@@ -1073,8 +1167,6 @@ int main()
     // =====================================================================================
     // TAREA 8: Cálculos termodinámicos partiendo de una magnetización NO nula (m0 != 0)
     // =====================================================================================
-    // Ejecutamos exactamente la misma termodinámica (magnetización, E, c_N, chi_N, perfiles)
-    // pero inicializando el sistema con la fracción asimétrica correspondiente a m0.
     std::cout << "\n[3/3] Realizando Tarea 8: Termodinamica (m0 != 0)..." << std::endl;
     double m0_deseada_1 = 0.5; // Probamos con un m0 del 50%
     double m0_deseada_2 = 0.8; // Probamos con un m0 del 80%

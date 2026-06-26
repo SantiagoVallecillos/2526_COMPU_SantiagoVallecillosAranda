@@ -45,10 +45,10 @@ import io
 
 # Parámetros
 # ========================================
-file_in = "ising_desord1_data.dat" # Nombre del fichero de datos
+file_in = "ising_evol_m0_0.50_T_1.90.dat" # Nombre del fichero de datos
 file_out = "1000T1" # Nombre del fichero de salida (sin extensión)
 interval = 100 # Tiempo entre fotogramas en milisegundos
-save_to_file = False # False: muestra la animación por pantalla,
+save_to_file = True # False: muestra la animación por pantalla,
                      # True: la guarda en un fichero
 dpi = 150 # Calidad del vídeo de salida (dots per inch)
 
