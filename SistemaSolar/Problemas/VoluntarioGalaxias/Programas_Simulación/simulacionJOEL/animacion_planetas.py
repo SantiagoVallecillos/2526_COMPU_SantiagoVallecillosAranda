@@ -1,45 +1,7 @@
 # ================================================================================
-# ANIMACION SISTEMA SOLAR
-#
-# Genera una animación a partir de un fichero de datos con las posiciones
-# de los planetas en diferentes instantes de tiempo.
-# 
-# El fichero debe estructurarse de la siguiente forma:
-# 
-#   x1_1, y1_1
-#   x2_1, y2_1
-#   x3_1, y3_1
-#   (...)
-#   xN_1, yN_1
-#   
-#   x1_2, y1_2
-#   x2_2, y2_2
-#   x3_2, y3_2
-#   (...)
-#   xN_2, yN_2
-#
-#   x1_3, y1_3
-#   x2_3, y2_3
-#   x3_3, y3_3
-#   (...)
-#   xN_3, yN_3
-#   
-#   (...)
-#
-# donde xi_j es la componente x del planeta i-ésimo en el instante de
-# tiempo j-ésimo, e yi_j lo mismo en la componente y. El programa asume que
-# el nº de planetas es siempre el mismo.
-# ¡OJO! Los datos están separados por comas.
-# 
-# Si solo se especifica un instante de tiempo, se genera una imagen en pdf
-# en lugar de una animación
-#
-# Se puede configurar la animación cambiando el valor de las variables
-# de la sección "Parámetros"
-#
+# ANIMACION SISTEMA SOLAR (VERSIÓN ALTA EFICIENCIA)
 # ================================================================================
 
-# Importa los módulos necesarios
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Circle
@@ -54,179 +16,140 @@ except ImportError:
 
 # Parámetros
 # ========================================
-file_in = "posiciones_planetas.dat" # Nombre del fichero de datos
-file_out = "planetas" # Nombre del fichero de salida (sin extensión)
-use_gpu = True  # Si hay GPU/CuPy disponible, úsala para procesar los datos
+file_in = "posiciones_planetas.dat" 
+file_out = "planetas" 
+use_gpu = True  
 
-# Límites de los ejes X e Y
+# --- NUEVOS PARÁMETROS DE OPTIMIZACIÓN ---
+frame_step = 100          # PROCESA 1 DE CADA X FOTOGRAMAS. Auméntalo si va lento (ej. 50 o 100).
+max_trail_length = 50    # LONGITUD MÁXIMA DE LA ESTELA. Evita que la memoria colapse.
+# -----------------------------------------
+
 x_min = -1
 x_max = 1
 y_min = -1 
 y_max = 1
 
-interval = 10 # Tiempo entre fotogramas en milisegundos
-show_trail = True # Muestra la "estela" del planeta
-trail_width = 1 # Ancho de la estela
-save_to_file = True # False: muestra la animación por pantalla,
-                     # True: la guarda en un fichero
-dpi = 150 # Calidad del vídeo de salida (dots per inch)
+interval = 20 # Tiempo entre fotogramas en milisegundos
+show_trail = True 
+trail_width = 1 
+save_to_file = True 
+dpi = 150 
 
-# Radio del planeta, en las mismas unidades que la posición
-# Puede ser un número (el radio de todos los planetas) o una lista con
-# el radio de cada uno
 planet_radius = 0.01 
-#planet_radius = [0.1, 0.1, 0.2, 0.2, 1.5, 1.3, 1, 1, 0.1]
-
-# Colores de cada planeta. Si solo se especifica un color, se usa el mismo
-# para todos los planetas.
 planet_colors = ["tab:blue", "tab:orange", "tab:green", "tab:red",
                  "tab:purple", "tab:brown", "tab:pink", "tab:gray"]
 
 
 # Lectura del fichero de datos
 # ========================================
-# Lee el fichero a una cadena de texto
+print("Leyendo fichero de datos...")
 with open(file_in, "r") as f:
     data_str = f.read()
 
-# Selecciona el backend de arrays: CuPy si hay GPU y está habilitado, NumPy en caso contrario
 xp = cp if gpu_available and use_gpu else np
 if gpu_available and use_gpu:
-    print("GPU disponible: usando CuPy para el preprocesado de datos.")
+    def to_cpu(array): return xp.asnumpy(array)
 else:
-    if use_gpu:
-        print("GPU no disponible o CuPy no instalado: usando NumPy.")
-    xp = np
+    def to_cpu(array): return array
 
-# Helper para llevar datos a CPU antes de dibujar con Matplotlib
-if gpu_available and use_gpu:
-    def to_cpu(array):
-        return xp.asnumpy(array)
-else:
-    def to_cpu(array):
-        return array
-
-# Inicializa la lista con los datos de cada fotograma.
-# frames_data[j] contiene los datos del fotograma j-ésimo
 frames_data = list()
 
-# Itera sobre los bloques de texto separados por líneas vacías
-# (cada bloque corresponde a un instante de tiempo)
-for frame_data_str in data_str.split("\n\n"):
-    # Inicializa la lista con la posición de cada planeta
+# OPTIMIZACIÓN 1: Descartar bloques de texto antes de procesarlos numéricamente
+bloques_texto = [b for b in data_str.split("\n\n") if b.strip()]
+bloques_texto = bloques_texto[::frame_step] # Aplicar el salto de fotogramas
+
+print(f"Procesando {len(bloques_texto)} fotogramas (con salto de {frame_step})...")
+
+for frame_data_str in bloques_texto:
     frame_data = list()
-
-    # Itera sobre las líneas del bloque
-    # (cada línea da la posición de un planeta)
     for planet_pos_str in frame_data_str.split("\n"):
-        # Lee la componente x e y de la línea
-        planet_pos = xp.fromstring(planet_pos_str, sep=",")
-        # Si la línea no está vacía, añade planet_pos a la lista de 
-        # posiciones del fotograma
-        if planet_pos.size > 0:
-            frame_data.append(planet_pos)
+        if planet_pos_str.strip():
+            planet_pos = xp.fromstring(planet_pos_str, sep=",")
+            if planet_pos.size > 0:
+                frame_data.append(planet_pos)
 
-    # Añade los datos de este fotograma a la lista
     if frame_data:
         frames_data.append(xp.vstack(frame_data))
 
-# El número de planetas es el número de filas en el primer bloque
 nplanets = int(frames_data[0].shape[0])
+
+# OPTIMIZACIÓN 2: Precalcular el historial en una matriz 3D para acceso instantáneo
+# Dimensión: (num_fotogramas, num_planetas, coordenadas_xy)
+print("Construyendo matriz histórica 3D para acelerar el renderizado...")
+historial = np.array([to_cpu(f) for f in frames_data])
 
 
 # Creación de la animación/gráfico
 # ========================================
-# Crea los objetos figure y axis
+print("Generando animación...")
 fig, ax = plt.subplots()
-
-# Define el rango de los ejes
-ax.axis("equal")  # Misma escala para ejes X e Y
+ax.axis("equal")  
 ax.set_xlim(x_min, x_max)
 ax.set_ylim(y_min, y_max)
+ax.set_facecolor('black') # Fondo negro opcional, queda más "espacial"
 
-# Si solo se ha dado un radio para todos los planetas, conviértelo a una
-# lista con todos los elementos iguales
 if not hasattr(planet_radius, "__iter__"):
     planet_radius = planet_radius*np.ones(nplanets)
-# En caso contrario, comprueba que el nº de radios coincide con el
-# nº de planetas y devuelve error en caso contrario
 else:
     if not nplanets == len(planet_radius):
-        raise ValueError(
-                "El número de radios especificados no coincide con el número "
-                "de planetas")
+        raise ValueError("El número de radios no coincide con el de planetas")
 
-# Si solo se ha dado un color para todos los planetas, convíertelo a una
-# lista con todos los elementos iguales
 if not hasattr(planet_colors, "__iter__") or isinstance(planet_colors, str):
     planet_colors = [planet_colors]*nplanets
 elif len(planet_colors) < nplanets:
-    # Repite la secuencia de colores si hay menos de planetas.
-    planet_colors = (planet_colors *
-                     ((nplanets // len(planet_colors)) + 1))[:nplanets]
+    planet_colors = (planet_colors * ((nplanets // len(planet_colors)) + 1))[:nplanets]
 
-# Representa el primer fotograma
-# Pinta un punto en la posición de cada planeta y guarda el objeto asociado
-# al punto en una lista
 planet_points = list()
 planet_trails = list()
-for planet_pos, radius, color in zip(frames_data[0], planet_radius, planet_colors):
-    x, y = to_cpu(planet_pos)
-    planet_point = Circle((x, y), radius, facecolor=color, edgecolor="none")
+
+for j_planet, (radius, color) in enumerate(zip(planet_radius, planet_colors)):
+    x, y = historial[0, j_planet, 0], historial[0, j_planet, 1]
+    
+    planet_point = Circle((x, y), radius, facecolor=color, edgecolor="none", zorder=3)
     ax.add_artist(planet_point)
     planet_points.append(planet_point)
 
-    # Inicializa las estelas (si especificado en los parámetros)
     if show_trail:
-        planet_trail, = ax.plot(
-                x, y, "-", linewidth=trail_width,
-                color=color)
+        planet_trail, = ax.plot(x, y, "-", linewidth=trail_width, color=color, alpha=0.6, zorder=2)
         planet_trails.append(planet_trail)
  
-# Función que actualiza la posición de los planetas en la animación 
-def update(j_frame, frames_data, planet_points, planet_trails, show_trail):
-    # Actualiza la posición del correspondiente a cada planeta
-    for j_planet, planet_pos in enumerate(frames_data[j_frame]):
-        x, y = to_cpu(planet_pos)
+def update(j_frame):
+    for j_planet in range(nplanets):
+        x = historial[j_frame, j_planet, 0]
+        y = historial[j_frame, j_planet, 1]
         planet_points[j_planet].center = (x, y)
 
         if show_trail:
-            xs_old, ys_old = planet_trails[j_planet].get_data()
-            xs_new = np.append(xs_old, x)
-            ys_new = np.append(ys_old, y)
-
+            # OPTIMIZACIÓN 3: Extraer la estela con slicing (super rápido) y con longitud límite
+            inicio_estela = max(0, j_frame - max_trail_length)
+            xs_new = historial[inicio_estela:j_frame+1, j_planet, 0]
+            ys_new = historial[inicio_estela:j_frame+1, j_planet, 1]
             planet_trails[j_planet].set_data(xs_new, ys_new)
 
     return planet_points + planet_trails
 
 def init_anim():
-    # Clear trails
     if show_trail:
         for j_planet in range(nplanets):
-            planet_trails[j_planet].set_data(list(), list())
-
+            planet_trails[j_planet].set_data([], [])
     return planet_points + planet_trails
 
-# Calcula el nº de frames
 nframes = len(frames_data)
 
-# Si hay más de un instante de tiempo, genera la animación
 if nframes > 1:
-    # Info sobre FuncAnimation: https://matplotlib.org/stable/api/animation_api.html
     animation = FuncAnimation(
             fig, update, init_func=init_anim,
-            fargs=(frames_data, planet_points, planet_trails, show_trail),
-            frames=len(frames_data), blit=True, interval=interval)
+            frames=nframes, blit=True, interval=interval)
 
-    # Muestra por pantalla o guarda según parámetros
     if save_to_file:
         animation.save("{}.mp4".format(file_out), dpi=dpi)
+        print(f"Vídeo guardado con éxito como {file_out}.mp4")
     else:
         plt.show()
-# En caso contrario, muestra o guarda una imagen
 else:
-    # Muestra por pantalla o guarda según parámetros
     if save_to_file:
         fig.savefig("{}.pdf".format(file_out))
+        print("Imagen guardada con éxito.")
     else:
         plt.show()
