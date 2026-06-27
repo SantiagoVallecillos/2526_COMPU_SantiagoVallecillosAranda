@@ -6,7 +6,7 @@ import os
 # CONFIGURACIÓN DEL SCRIPT
 # ==============================================================================
 # Nombres de los archivos a leer. Cámbialos por los que quieras analizar (ej: magn32.txt para m0=0)
-archivos = ['magn32.txt', 'magn64.txt', 'magn128.txt']
+archivos = ['magn32_m0_0.50.txt', 'magn64_m0_0.50.txt', 'magn128_m0_0.50.txt']
 etiquetas = ['N = 32', 'N = 64', 'N = 128']
 colores = ['blue', 'orange', 'green']
 
@@ -50,6 +50,6 @@ plt.tight_layout() # Ajusta los márgenes
 plt.subplots_adjust(top=0.90) # Deja espacio para el título principal
 
 # Guardar la gráfica en una imagen de alta calidad y mostrarla en pantalla
-plt.savefig('energia_media_resultados.png', dpi=300)
-print("Gráfica guardada como 'energia_media_resultados.png'")
+plt.savefig('energia_media_resultados_m0_0.50.png', dpi=300)
+print("Gráfica guardada como 'energia_media_resultados_m0_0.50.png'")
 plt.show()
