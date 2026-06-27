@@ -9,7 +9,7 @@
 
 using namespace std;
 
-constexpr size_t kNumPlanetas = 100;
+constexpr size_t kNumPlanetas = 1000;
 constexpr size_t kNumCoordenadas = 2;
 constexpr double kG = 6.67430e-11;
 constexpr double kUnidadDistancia = 1e21; // Radio vía láctea
