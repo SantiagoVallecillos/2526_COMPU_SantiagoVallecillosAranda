@@ -80,5 +80,8 @@ Ising/Problemas/Voluntario_Kawasaki/Animaciones
 ClasesIniciales/
 Cohete/Teoría
 
+#Dejo fuera los resultados pesados
+SistemaSolar/Problemas/VoluntarioGalaxias/Resultados_pesados/
+
 # Dejo fuera mis notas personales de trabajo
 CosasPendientes.ipynb
