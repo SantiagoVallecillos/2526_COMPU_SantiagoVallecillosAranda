@@ -45,7 +45,7 @@ import io
 
 # Parámetros
 # ========================================
-file_in = "ising_per_des_low.dat" # Nombre del fichero de datos
+file_in = "ising_evol_m0_0.80_T_3.10.dat" # Nombre del fichero de datos
 file_out = "fotogram" # Nombre del fichero de salida (sin extensión)
 interval = 100 # Tiempo entre fotogramas en milisegundos
 save_to_file = True # False: muestra la animación por pantalla,
