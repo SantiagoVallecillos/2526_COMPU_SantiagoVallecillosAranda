@@ -9,9 +9,9 @@ Repositorio para la asignatura Física Computacional.
 
 # Problemas voluntarios realizados
 
-- Ising Kawasaki
+- Ising Kawasaki - Se puede encontrar en la carpeta "Ising/Problemas/Voluntario_Kawasaki
 
-- Formación de galaxias a partir de sistemas solares
+- Formación de galaxias a partir de sistemas solares - Se puede encontrar en la carpeta "SistemaSolar/Problemas/VoluntarioGalaxias"
 
 # Nombre del grupo de clase
 

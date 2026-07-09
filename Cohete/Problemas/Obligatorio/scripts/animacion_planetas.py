@@ -47,8 +47,8 @@ import numpy as np
 
 # Parámetros
 # ========================================
-file_in = "trayectoria.dat" # Nombre del fichero de datos
-file_out = "cohete" # Nombre del fichero de salida (sin extensión)
+file_in = "trayectoria_adap.dat" # Nombre del fichero de datos
+file_out = "adap" # Nombre del fichero de salida (sin extensión)
 
 # Límites de los ejes X e Y
 x_min = -5
